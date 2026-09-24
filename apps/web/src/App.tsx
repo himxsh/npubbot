@@ -189,6 +189,17 @@ export function App() {
             </span>
           </section>
 
+          {load.status.inbox.lastError ? (
+            <p className="banner banner-warn">
+              Relays: {load.status.inbox.lastError}
+            </p>
+          ) : null}
+          {load.status.wallet.lastError ? (
+            <p className="banner banner-warn">
+              Mint/wallet: {load.status.wallet.lastError}
+            </p>
+          ) : null}
+
           {load.status.mock.nostr ? (
             <form className="card action-card" onSubmit={(event) => void onInject(event)}>
               <h2>Mock mention</h2>
@@ -326,6 +337,17 @@ export function App() {
                               {busy === session.quoteId
                                 ? "Unlocking…"
                                 : "Mark invoice paid"}
+                            </button>
+                          ) : null}
+                          {session.state === "pending" && !load.status.mock.cashu ? (
+                            <button
+                              type="button"
+                              onClick={() => void onMarkPaid(session.quoteId)}
+                              disabled={busy !== null}
+                            >
+                              {busy === session.quoteId
+                                ? "Checking mint…"
+                                : "Check mint payment"}
                             </button>
                           ) : null}
                         </li>

@@ -1,52 +1,12 @@
-import { newId } from "../ids.ts";
-import type { CashuHandle } from "./cashu.ts";
+import type { AdmissionQuote, CashuHandle } from "./cashu.ts";
 
-export type AdmissionQuote = {
-  quoteId: string;
-  amountSats: number;
-  request: string;
-  mock: boolean;
-};
-
-function createMockQuote(amountSats: number): AdmissionQuote {
-  const quoteId = newId("quote");
-  return {
-    quoteId,
-    amountSats,
-    mock: true,
-    request: `cashu:mock:${quoteId}:${amountSats}sat`,
-  };
-}
-
-/**
- * TODO(cashu-mint): Call wallet.loadMint() then createMintQuoteBolt11(amount)
- * and return the mint quote id + lightning invoice / Cashu request.
- * Never log the paid token or proofs.
- */
-async function createMintQuote(
-  handle: Extract<CashuHandle, { mock: false }>,
-  amountSats: number,
-): Promise<AdmissionQuote> {
-  void handle.wallet;
-  console.info(
-    `[cashu] TODO(cashu-mint): createMintQuoteBolt11(${amountSats}) at ${handle.mintUrl}`,
-  );
-  const mock = createMockQuote(amountSats);
-  return {
-    ...mock,
-    mock: false,
-    request: `cashu:todo-mint:${mock.quoteId}:${amountSats}sat`,
-  };
-}
+export type { AdmissionQuote } from "./cashu.ts";
 
 export async function createAdmissionQuote(
   handle: CashuHandle,
   amountSats: number,
 ): Promise<AdmissionQuote> {
-  if (handle.mock) {
-    return createMockQuote(amountSats);
-  }
-  return createMintQuote(handle, amountSats);
+  return handle.createQuote(amountSats);
 }
 
 export function paywallMessage(input: {
@@ -63,6 +23,10 @@ export function paywallMessage(input: {
   if (input.mock) {
     lines.push(
       "Mock mint: an operator can mark this quote paid on the localhost dashboard.",
+    );
+  } else {
+    lines.push(
+      "Live mint: pay the Lightning invoice. The agent notices payment automatically. You can also send a Cashu token (cashuA/cashuB) in a mention.",
     );
   }
   return lines.join("\n");

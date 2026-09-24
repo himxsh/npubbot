@@ -1,4 +1,5 @@
 import { isIP } from "node:net";
+import { isTimeoutError } from "../errors.ts";
 
 export type FetchUrlResult =
   | { ok: true; url: string; status: number; contentType: string; text: string }
@@ -106,6 +107,9 @@ export async function fetchUrl(
       text: text.length > 0 ? text : "(empty body)",
     };
   } catch (error) {
+    if (isTimeoutError(error)) {
+      return { ok: false, url: parsed.toString(), error: "timeout" };
+    }
     const message = error instanceof Error ? error.message : "fetch failed";
     return { ok: false, url: parsed.toString(), error: message };
   }

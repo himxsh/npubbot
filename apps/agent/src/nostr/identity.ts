@@ -1,6 +1,10 @@
 import { generateSecretKey, getPublicKey } from "nostr-tools/pure";
 import { nip19 } from "nostr-tools";
 
+/**
+ * Resolve the agent identity from NOSTR_NSEC or an ephemeral mock key.
+ * Never log `secretKey` or the nsec string — only `npub` / `source`.
+ */
 export type AgentIdentity = {
   source: "env" | "ephemeral-mock";
   secretKey: Uint8Array;
