@@ -1,0 +1,40 @@
+# Dependencies
+node_modules/
+
+# Env and secrets (keep .env.example)
+.env
+.env.local
+.env.*.local
+*.pem
+*.key
+
+# Build output
+dist/
+build/
+coverage/
+*.tsbuildinfo
+
+# Logs and debug
+logs/
+*.log
+npm-debug.log*
+pnpm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# Editors / OS
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/*
+!.vscode/extensions.json
+!.vscode/settings.json
+
+# Vite / test caches
+.vite/
+.turbo/
+.cache/
+.eslintcache
+
+# Optional local tooling
+.pnpm-store/
