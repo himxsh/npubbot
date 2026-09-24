@@ -6,6 +6,7 @@ import {
   type SessionState,
   type SessionSummary,
 } from "@npubbot/shared";
+import { redactSecrets } from "./secrets.ts";
 
 const persistedSessionSchema = z.object({
   senderPubkeyHex: z.string(),
@@ -71,7 +72,7 @@ export class SessionStore {
       expiresAt: session.expiresAt,
       paidAt: session.paidAt,
       pendingPromptPreview: session.pendingPrompt
-        ? session.pendingPrompt.text.slice(0, 140)
+        ? redactSecrets(session.pendingPrompt.text).slice(0, 140)
         : null,
     }));
   }
@@ -111,7 +112,9 @@ export class SessionStore {
     if (!session) {
       return;
     }
-    session.pendingPrompt = prompt;
+    session.pendingPrompt = prompt
+      ? { eventId: prompt.eventId, text: prompt.text }
+      : null;
     void this.persist();
   }
 

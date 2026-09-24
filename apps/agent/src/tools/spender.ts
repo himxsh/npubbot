@@ -2,13 +2,16 @@ import type { ToolSpendRecord } from "@npubbot/shared";
 import { newId } from "../ids.ts";
 import type { AgentStore } from "../store.ts";
 import type { CashuHandle } from "../payments/cashu.ts";
+import { logInfo } from "../secrets.ts";
 
 export const TOOL_NAME = "fetch_url" as const;
 
 /**
  * Debit the agent wallet before running fetch_url.
  * Mock Cashu: in-memory debit.
- * TODO(cashu-mint): melt proofs / pay Lightning instead of debit().
+ * Live Cashu: debit the same in-memory balance (credited when quotes settle
+ * or tokens are received). TODO(cashu-mint): meltProofsBolt11 / createMeltQuoteBolt11
+ * once fetch_url has a Lightning sink — HTTP GET has no invoice to melt to.
  */
 export function spendForTool(options: {
   store: AgentStore;
@@ -35,8 +38,9 @@ export function spendForTool(options: {
   }
 
   if (!cashu.mock) {
-    console.info(
-      `[cashu] TODO(cashu-mint): melt ${amountSats} sat for ${TOOL_NAME} at ${cashu.mintUrl}`,
+    logInfo(
+      "cashu",
+      `TODO(cashu-mint): melt ${amountSats} sat for ${TOOL_NAME} at ${cashu.mintUrl} (proofs held=${cashu.proofBalanceSats()} sat, not logged)`,
     );
   }
 

@@ -1,14 +1,35 @@
-import type {
-  AgentStatus,
-  InboxStatus,
-  MockFlags,
-  NostrEventSummary,
-  PaymentRecord,
-  SessionSummary,
-  ToolSpendRecord,
+import {
+  assertNever,
+  type AgentStatus,
+  type InboxStatus,
+  type MockFlags,
+  type NostrEventSummary,
+  type PaymentRecord,
+  type PaymentState,
+  type SessionSummary,
+  type ToolSpendRecord,
 } from "@npubbot/shared";
+import { redactSecrets } from "./secrets.ts";
 
 const MAX_ROWS = 50;
+
+function sanitizePaymentState(state: PaymentState): PaymentState {
+  switch (state.kind) {
+    case "unpaid":
+      return state;
+    case "pending":
+      return {
+        kind: "pending",
+        tokenOrInvoice: redactSecrets(state.tokenOrInvoice),
+      };
+    case "paid":
+      return state;
+    case "failed":
+      return { kind: "failed", reason: redactSecrets(state.reason) };
+    default:
+      return assertNever(state);
+  }
+}
 
 export type AgentIdentityView = {
   npub: string;
@@ -24,6 +45,7 @@ export class AgentStore {
   private lastToolSpend: ToolSpendRecord | null = null;
   private readonly seenEventIds = new Set<string>();
   private inbox: InboxStatus;
+  private walletError: string | null = null;
   private sessionsView: () => SessionSummary[] = () => [];
 
   constructor(
@@ -48,7 +70,20 @@ export class AgentStore {
   }
 
   setInbox(patch: Partial<InboxStatus>): void {
-    this.inbox = { ...this.inbox, ...patch };
+    this.inbox = {
+      ...this.inbox,
+      ...patch,
+      lastError:
+        patch.lastError === undefined
+          ? this.inbox.lastError
+          : patch.lastError === null
+            ? null
+            : redactSecrets(patch.lastError),
+    };
+  }
+
+  setWalletError(error: string | null): void {
+    this.walletError = error === null ? null : redactSecrets(error);
   }
 
   getInbox(): InboxStatus {
@@ -76,7 +111,11 @@ export class AgentStore {
   }
 
   recordPayment(record: PaymentRecord): void {
-    this.payments.unshift(record);
+    this.payments.unshift({
+      ...record,
+      note: redactSecrets(record.note),
+      state: sanitizePaymentState(record.state),
+    });
     if (this.payments.length > MAX_ROWS) {
       this.payments.length = MAX_ROWS;
     }
@@ -96,7 +135,10 @@ export class AgentStore {
 
   recordEvent(record: NostrEventSummary): void {
     this.seenEventIds.add(record.id);
-    this.events.unshift(record);
+    this.events.unshift({
+      ...record,
+      summary: redactSecrets(record.summary),
+    });
     if (this.events.length > MAX_ROWS) {
       this.events.length = MAX_ROWS;
     }
@@ -118,11 +160,18 @@ export class AgentStore {
         balanceSats: this.balanceSats,
         mintUrl: this.mintUrl,
         mock: this.flags.cashu,
+        lastError: this.walletError,
       },
       gate: this.gate,
       mock: this.flags,
       inbox: this.inbox,
-      sessions: this.sessionsView(),
+      sessions: this.sessionsView().map((session) => ({
+        ...session,
+        request: redactSecrets(session.request),
+        pendingPromptPreview: session.pendingPromptPreview
+          ? redactSecrets(session.pendingPromptPreview)
+          : null,
+      })),
       payments: [...this.payments],
       events: [...this.events],
       toolSpends: [...this.toolSpends],

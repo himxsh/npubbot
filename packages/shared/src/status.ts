@@ -127,6 +127,7 @@ export const agentStatusSchema = z.object({
     balanceSats: z.number().int(),
     mintUrl: z.string().nullable(),
     mock: z.boolean(),
+    lastError: z.string().nullable(),
   }),
   gate: z.object({
     admissionSats: z.number().int().nonnegative(),
@@ -168,6 +169,8 @@ export const inboundOutcomeSchema = z.enum([
   "tool",
   "tool-unaffordable",
   "tool-need-url",
+  "throttled",
+  "error",
   "ignored-dm",
   "ignored-self",
   "duplicate",

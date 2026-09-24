@@ -27,7 +27,7 @@ export function describeGateDecision(decision: GateDecision): string {
 
 /**
  * Placeholder the agent would attach to an unpaid Nostr reply.
- * TODO(cashu-mint): mint a real Cashu quote / Lightning invoice here.
+ * Live quotes come from `createAdmissionQuote` / `@cashu/cashu-ts`.
  */
 export function mockPaymentRequest(amountSats: number): string {
   return `cashu:mock-admission-${amountSats}sat`;

@@ -1,3 +1,5 @@
+import { AgentFaultError, isTimeoutError } from "../errors.ts";
+
 export type LlmCompleteInput = {
   system: string;
   user: string;
@@ -68,26 +70,38 @@ export function createLlmClient(options: {
     mock: false,
     model,
     async complete(input) {
-      const response = await fetch(endpoint, {
-        method: "POST",
-        headers: {
-          authorization: `Bearer ${apiKey}`,
-          "content-type": "application/json",
-        },
-        body: JSON.stringify({
-          model,
-          messages: [
-            { role: "system", content: input.system },
-            { role: "user", content: input.user },
-          ],
-        }),
-        signal: AbortSignal.timeout(30_000),
-      });
-      if (!response.ok) {
-        throw new Error(`LLM HTTP ${response.status}`);
+      let response: Response;
+      try {
+        response = await fetch(endpoint, {
+          method: "POST",
+          headers: {
+            authorization: `Bearer ${apiKey}`,
+            "content-type": "application/json",
+          },
+          body: JSON.stringify({
+            model,
+            messages: [
+              { role: "system", content: input.system },
+              { role: "user", content: input.user },
+            ],
+          }),
+          signal: AbortSignal.timeout(30_000),
+        });
+      } catch (error) {
+        if (isTimeoutError(error)) {
+          throw new AgentFaultError("llm", "LLM request timed out");
+        }
+        throw new AgentFaultError("llm");
       }
-      const text = readChoiceContent(await response.json());
-      return { mock: false, model, text };
+      if (!response.ok) {
+        throw new AgentFaultError("llm", `LLM HTTP ${response.status}`);
+      }
+      try {
+        const text = readChoiceContent(await response.json());
+        return { mock: false, model, text };
+      } catch {
+        throw new AgentFaultError("llm");
+      }
     },
   };
 }

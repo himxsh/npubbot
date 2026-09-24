@@ -11,6 +11,7 @@ import type { AgentStore } from "../store.ts";
 import type { Inbox } from "../inbox.ts";
 import type { LlmClient } from "../llm/client.ts";
 import { isLoopbackHost, readJsonBody } from "./body.ts";
+import { jsonReplacer, logError, redactSecrets } from "../secrets.ts";
 
 export type HttpServerOptions = {
   host: string;
@@ -32,7 +33,7 @@ function sendJson(
   status: number,
   body: unknown,
 ): void {
-  const payload = JSON.stringify(body, null, 2);
+  const payload = JSON.stringify(body, jsonReplacer, 2);
   setCors(res);
   res.writeHead(status, {
     "content-type": "application/json; charset=utf-8",
@@ -53,7 +54,7 @@ function errorMessage(error: unknown): string {
     return error.issues.map((issue) => issue.message).join("; ");
   }
   if (error instanceof Error) {
-    return error.message;
+    return redactSecrets(error.message);
   }
   return "unknown error";
 }
@@ -155,11 +156,11 @@ export async function startHttpServer(options: HttpServerOptions): Promise<{
         sendJson(res, 404, { error: message });
         return;
       }
-      if (message === "quote expired") {
+      if (message === "quote expired" || message === "mint quote unpaid") {
         sendJson(res, 409, { error: message });
         return;
       }
-      console.error("[http]", error);
+      logError("http", error);
       sendJson(res, 500, { error: message });
     }
   }

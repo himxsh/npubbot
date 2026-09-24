@@ -66,6 +66,7 @@ export const agentEnvSchema = z.object({
   MOCK_BALANCE_SATS: z.coerce.number().int().nonnegative().default(210),
   SESSION_TTL_SECONDS: z.coerce.number().int().positive().default(900),
   QUOTE_TTL_SECONDS: z.coerce.number().int().positive().default(3600),
+  UNPAID_COOLDOWN_MS: z.coerce.number().int().nonnegative().default(10_000),
   SESSION_STORE_PATH: z.string().default("data/sessions.json"),
   LLM_API_KEY: optionalString,
   LLM_BASE_URL: z.string().default("https://api.openai.com/v1"),

@@ -7,6 +7,7 @@ import {
 import type { Event } from "nostr-tools/pure";
 import WebSocket from "ws";
 import type { AgentStore } from "../store.ts";
+import { logInfo, logWarn, redactSecrets } from "../secrets.ts";
 import type { AgentIdentity } from "./identity.ts";
 
 let nodeWebSocketInstalled = false;
@@ -41,8 +42,9 @@ export function startNostrListener(options: {
   const { identity, relays, mock, store, onEvent } = options;
 
   if (mock) {
-    console.info(
-      "[nostr] mock inbox — not connecting to relays; use POST /dev/inbound",
+    logInfo(
+      "nostr",
+      "mock inbox — not connecting to relays; use POST /dev/inbound",
     );
     store.setInbox({
       mock: true,
@@ -55,7 +57,7 @@ export function startNostrListener(options: {
 
   if (relays.length === 0) {
     const message = "NOSTR_RELAYS is empty";
-    console.warn(`[nostr] ${message}`);
+    logWarn("nostr", message);
     store.setInbox({
       mock: false,
       relays,
@@ -74,11 +76,13 @@ export function startNostrListener(options: {
     since,
   };
 
-  console.info(
-    `[nostr] subscribe mentions+DMs as ${identity.npub} on ${relays.join(", ")}`,
+  logInfo(
+    "nostr",
+    `subscribe mentions+DMs as ${identity.npub} on ${relays.join(", ")}`,
   );
-  console.info(
-    "[nostr] DM tradeoff: kind 4 / NIP-17 gift wraps are recorded, not decrypted (TODO(nostr-dm-encryption)). Mentions (kind 1) enter the payment gate.",
+  logInfo(
+    "nostr",
+    "DM tradeoff: kind 4 / NIP-17 gift wraps are recorded, not decrypted (TODO(nostr-dm-encryption)). Mentions (kind 1) enter the payment gate.",
   );
 
   const sub = pool.subscribe(relays, filter, {
@@ -86,9 +90,12 @@ export function startNostrListener(options: {
       onEvent(event);
     },
     onclose(reasons) {
-      const text = reasons.map((row) => `${row.url}: ${row.reason}`).join("; ");
+      const text = reasons
+        .map((row) => `${row.url}: ${redactSecrets(row.reason)}`)
+        .join("; ");
       if (text.length > 0) {
         store.setInbox({ lastError: text });
+        logWarn("nostr", `relay closed ${text}`);
       }
     },
   });

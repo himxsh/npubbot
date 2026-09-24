@@ -5,17 +5,18 @@ NpubBot is shaped so implementation can speak to these BOSS Battle tracks. Nothi
 ## Cypherpunk — Cashu privacy by default
 
 - The agent’s default money path is **ecash**, not a custodial account or KYC API.
-- Admission tokens and the agent’s own proofs live in wallet state, not in the dashboard payload.
-- Logs and `/status` should never print tokens, secrets, or nsecs (the API omits them).
-- A real mint is a single config URL (`CASHU_MINT_URL`) so the operator can pick a mint they trust.
+- Admission tokens and the agent’s own proofs live in an in-memory vault, not in the dashboard payload.
+- Logs, `/status`, and the dashboard redact nsecs, API keys, and Cashu tokens/proofs.
+- A real mint is a single config URL (`CASHU_MINT_URL`) so the operator can pick a mint they trust. `MOCK_MODE=true` never contacts it.
 
-`TODO(cashu-mint)` in `apps/agent` is the plug-in point for quotes **and** tool melts.
+Live quote + receive is wired with `@cashu/cashu-ts` when `MOCK_MODE=false` and `CASHU_MINT_URL` is set. **TODO(cashu-mint):** encrypted proof persistence and Lightning melt for tool spend.
 
 ## Freedom Stack — Nostr + ecash
 
 - Identity is an **npub**; transport is relays, not a product-specific chat server.
 - Value is **Cashu** (with Lightning as the on/off ramp the mint already speaks).
 - The localhost dashboard is an operator surface only. Users talk to the bot on Nostr.
+- Live outbound replies are kind-1 notes tagged to the sender. Mock mode keeps `/dev/inbound`.
 
 `TODO(nostr-dm-encryption)` is the plug-in point for private inbound messages (NIP-44 preferred, NIP-04 legacy).
 
@@ -35,3 +36,5 @@ NpubBot is shaped so implementation can speak to these BOSS Battle tracks. Nothi
 5. Dashboard **Tool spends** lists the debit.
 
 Real mint melt for that debit remains `TODO(cashu-mint)` in `apps/agent/src/tools/spender.ts`.
+
+Devfolio field mapping: [DEMO.md](DEMO.md).

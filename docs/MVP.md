@@ -1,6 +1,6 @@
 # MVP
 
-End-to-end loop for NpubBot. Mock path: paywalled mentions, mark-paid, then optional `fetch_url` spend. Cashu mint settlement and DM decryption remain seams.
+End-to-end loop for NpubBot. Mock path: paywalled mentions, mark-paid, then optional `fetch_url` spend. Live mint quote/receive is behind `CASHU_MINT_URL` when `MOCK_MODE=false`. DM decryption remains a seam.
 
 ## Goal
 
@@ -9,18 +9,23 @@ A Nostr user can mention the agent’s npub, pay a small Cashu amount, and recei
 ## Loop (what runs now)
 
 1. **Listen.** Live: kind 1 `#p` mentions. Mock: `POST /dev/inbound`. DMs logged only (`TODO(nostr-dm-encryption)`).
-2. **Gate.** Unpaid senders get a quote. User text is not sent to the LLM.
-3. **Pay.** `POST /dev/mark-paid` (mock). Sessions in `data/sessions.json`.
+2. **Gate.** Unpaid senders get a quote. User text is not sent to the LLM. Extra unpaid mentions from the same pubkey are soft-throttled (`UNPAID_COOLDOWN_MS`).
+3. **Pay.** Mock: `POST /dev/mark-paid`. Live: mint bolt11 quote + poll/`receive` token.
 4. **Route.** Paid text with an http(s) URL → `fetch_url` path. Lookup/search/fetch without a URL → ask for a link (no spend). Otherwise paid chat.
-5. **Spend.** If routing to the tool: require wallet ≥ `TOOL_SPEND_SATS`, debit (mock; `TODO(cashu-mint)` melt), GET with timeout, feed result to the LLM.
+5. **Spend.** If routing to the tool: require wallet ≥ `TOOL_SPEND_SATS`, debit (mock, or local debit after live admission; `TODO(cashu-mint)` melt), GET with timeout, feed result to the LLM.
 6. **Broke.** If the agent cannot afford the tool, reply with wallet vs price. Do not fetch.
-7. **Reply.** Kind-1 (or mock outbound) to the sender.
-8. **Observe.** Dashboard: events, sessions, mark-paid, inbound inject, tool spend log.
+7. **Reply.** Live: kind-1 to the sender. Mock: sign locally, HTTP/dev returns the text. Publish failures are logged; the loop continues.
+8. **Observe.** Dashboard: events, sessions, mark-paid / check mint, inbound inject, tool spend log, relay/mint errors.
+9. **Faults.** Relay down, mint/wallet failure, LLM down, tool timeout, insufficient balance → user-facing copy. No crash of the inbox loop.
 
 ## Operator checks
 
 1. `pnpm install` and `pnpm typecheck`
 2. Unpaid inbound → paywall, no LLM answer
-3. Mark-paid → full reply
-4. `fetch https://example.com` on the paid session → balance drops, reply includes fetch result
-5. Tool spend appears on `/status` and the dashboard
+3. Second unpaid (same sender, inside cooldown) → `throttled`
+4. Mark-paid → full reply
+5. `fetch https://example.com` on the paid session → balance drops, reply includes fetch result
+6. Tool spend appears on `/status` and the dashboard
+7. `GET /status` has no nsec, API keys, or Cashu proofs
+
+Demo recording: [DEMO.md](DEMO.md).
