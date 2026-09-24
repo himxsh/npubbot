@@ -1,56 +1,38 @@
 # MVP
 
-End-to-end shape of the NpubBot MVP. This pass implements **structure and stubs only** — the steps below are the target loop, not what `pnpm dev` does today.
+End-to-end loop for NpubBot. The current branch implements the **mock happy path** plus live Nostr mention subscribe. Cashu mint settlement and DM decryption remain seams.
 
 ## Goal
 
-A Nostr user can mention or DM the agent’s npub, pay a small Cashu (or Lightning-via-mint) amount, and receive an LLM reply. The agent can spend a little of its own balance to call one tool. An operator can watch balance, payments, and recent events on localhost.
+A Nostr user can mention the agent’s npub, pay a small Cashu (or Lightning-via-mint) amount, and receive an LLM reply. Encrypted DMs are recorded but not answered until decryption lands. An operator can watch balance, payments, and events on localhost, and mark mock invoices paid.
 
 ## Actors
 
-- **User** — any Nostr client, paying with Cashu/Lightning
+- **User** — any Nostr client (mentions today; DMs later)
 - **Agent** — `apps/agent`, keyed by `NOSTR_NSEC`
-- **Mint** — Cashu mint at `CASHU_MINT_URL`
-- **LLM** — OpenAI-compatible HTTP API
+- **Mint** — Cashu mint at `CASHU_MINT_URL` (TODO hook; mock quotes meanwhile)
+- **LLM** — OpenAI-compatible HTTP API, or mock if no key
 - **Operator** — `apps/web` on loopback
 
-## Target loop
+## Loop (what runs now)
 
-1. **Listen.** Agent connects to `NOSTR_RELAYS` as its npub and subscribes to mentions and DMs.
-2. **Decrypt DMs.** Inbound gift-wraps / kind-4 events are decrypted.
-   - Plug-in: `TODO(nostr-dm-encryption)` (NIP-44 preferred).
-3. **Gate.** Before a full reply, require `PAYMENT_GATE_SATS`.
-   - Unpaid: reply with a compact invoice / Cashu request, not the LLM answer.
-   - Paid: mark the payment on the in-memory ledger (later: persist proofs).
-4. **Think.** Call the LLM interface with the user’s text (and any tool result).
-5. **Optional spend.** If the prompt needs the one registered tool, the agent melts/pays `TOOL_SPEND_SATS` from its own wallet, then calls the tool.
-   - Plug-in: `TODO(cashu-mint)` in the spender + wallet.
-6. **Reply.** Publish the answer back to Nostr (public reply or encrypted DM).
-7. **Observe.** Operator dashboard polls `GET /status` for identity, mock flags, balance, payments, and recent events.
+1. **Listen.** Live: `SimplePool.subscribe` on `NOSTR_RELAYS` for kind 1 `#p` mentions, plus kind 4 / 1059 DMs. Mock: `POST /dev/inbound`.
+2. **DMs.** Kind 4 / gift wraps are stored as encrypted stubs. They do **not** enter the gate.
+   - Plug-in: `TODO(nostr-dm-encryption)`.
+3. **Gate.** If the sender has no paid session, create an admission quote and reply with pay instructions. The user text is **not** sent to the LLM.
+4. **Pay.** Mock: `POST /dev/mark-paid`. Live mint: `TODO(cashu-mint)` (`createMintQuoteBolt11` / proofs). Sessions persist in `data/sessions.json`.
+5. **Think.** After payment, the held prompt (or a later mention in the session TTL) is sent to the LLM.
+6. **Reply.** Kind-1 reply tagged to the sender (logged only in mock Nostr).
+7. **Observe.** Dashboard polls `/health` and `/status` and can inject mentions / mark invoices paid.
 
-## Out of scope for the scaffold
+## DM tradeoff
 
-- Real mint quotes, melts, and proof storage
-- Real relay subscribe/publish
-- Real LLM completions
-- Encrypted DM round-trips
-- Persistence across process restarts
-- Authentication on the status API (loopback-only is the MVP assumption)
+Mentions are straightforward plaintext and are the paid inbox. NIP-04 kind-4 and NIP-17 gift wraps need decryption before we can safely gate or answer them. Until `TODO(nostr-dm-encryption)`, those events are visible on the dashboard and ignored by the LLM.
 
-## Scaffold stand-ins
-
-| Step | Stub behavior (`MOCK_MODE=true`) |
-| --- | --- |
-| Listen | Seed a couple of fake events; do not open WebSockets |
-| Decrypt | Not called; marker left in `nostr/encryption.ts` |
-| Gate | Pure function over sat amounts; mock “paid” rows in the store |
-| LLM | Returns a canned string from `llm/client.ts` |
-| Spend | Debits the in-memory mock balance |
-| Reply | Logged, not published |
-| Observe | `GET /health` and `GET /status` on the loopback HTTP server |
-
-## Operator checks (this pass)
+## Operator checks
 
 1. `pnpm install` and `pnpm typecheck`
-2. `pnpm agent` → `GET http://127.0.0.1:3847/health` and `/status`
-3. `pnpm web` → dashboard shows placeholder status (or “agent offline” then recovers)
+2. `pnpm agent` → `GET /health` and `/status`
+3. `POST /dev/inbound` → paywall reply, no LLM answer in the paywall text
+4. `POST /dev/mark-paid` → full mock LLM reply appears on `/status`
+5. Dashboard shows events, sessions, and a **Mark invoice paid** control

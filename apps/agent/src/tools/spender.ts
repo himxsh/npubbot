@@ -37,10 +37,12 @@ export function spendForTool(options: {
     if (ok) {
       store.recordPayment({
         id: newId("pay"),
+        quoteId: null,
         amountSats,
         direction: "out",
         state: { kind: "paid", amountSats },
         note: `tool spend (${TOOL_NAME})`,
+        senderNpub: null,
         createdAt,
       });
     }

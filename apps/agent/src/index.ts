@@ -1,30 +1,22 @@
-import { env, mock } from "./env.ts";
+import { env, mock, sessionStorePath } from "./env.ts";
 import { AgentStore } from "./store.ts";
+import { SessionStore } from "./sessions.ts";
 import { publicIdentity, resolveIdentity } from "./nostr/identity.ts";
 import { startNostrListener } from "./nostr/listener.ts";
 import { createCashuHandle } from "./payments/cashu.ts";
 import { startHttpServer } from "./http/server.ts";
-import { createPipelineLlm } from "./pipeline.ts";
-import { spendForTool } from "./tools/spender.ts";
-
-function seedMockLedger(store: AgentStore): void {
-  const createdAt = new Date(Date.now() - 60_000).toISOString();
-  store.recordPayment({
-    id: "mock-pay-in",
-    amountSats: env.PAYMENT_GATE_SATS,
-    direction: "in",
-    state: { kind: "paid", amountSats: env.PAYMENT_GATE_SATS },
-    note: "mock admission (mention)",
-    createdAt,
-  });
-  store.credit(env.PAYMENT_GATE_SATS);
-}
+import { createLlmClient } from "./llm/client.ts";
+import { createInbox } from "./inbox.ts";
 
 async function main(): Promise<void> {
   const identity = resolveIdentity(env.NOSTR_NSEC, mock.nostr);
   const cashu = createCashuHandle(env.CASHU_MINT_URL, mock.cashu);
-  const llm = createPipelineLlm(env, mock.llm);
-  void llm;
+  const llm = createLlmClient({
+    mock: mock.llm,
+    apiKey: env.LLM_API_KEY,
+    baseUrl: env.LLM_BASE_URL,
+    model: env.LLM_MODEL,
+  });
 
   const store = new AgentStore(
     publicIdentity(identity),
@@ -32,32 +24,60 @@ async function main(): Promise<void> {
     {
       admissionSats: env.PAYMENT_GATE_SATS,
       toolSpendSats: env.TOOL_SPEND_SATS,
+      sessionTtlSeconds: env.SESSION_TTL_SECONDS,
     },
     mock.cashu ? env.MOCK_BALANCE_SATS : 0,
     cashu.mintUrl,
+    {
+      mock: mock.nostr,
+      relays: env.NOSTR_RELAYS,
+      connected: [],
+      lastError: null,
+    },
   );
 
-  if (mock.cashu) {
-    seedMockLedger(store);
-    spendForTool({
-      store,
-      cashu,
-      amountSats: env.TOOL_SPEND_SATS,
-    });
-  }
+  const sessions = new SessionStore(
+    sessionStorePath,
+    env.QUOTE_TTL_SECONDS * 1000,
+    env.SESSION_TTL_SECONDS * 1000,
+  );
+  await sessions.load();
+  store.setSessionView(() => sessions.summaries());
 
-  const stopNostr = startNostrListener({
+  let poolRef: ReturnType<typeof startNostrListener>["pool"] = null;
+  const inbox = createInbox({
+    env,
+    mock,
+    identity,
+    store,
+    sessions,
+    cashu,
+    llm,
+    getPool: () => poolRef,
+  });
+
+  const listener = startNostrListener({
     identity,
     relays: env.NOSTR_RELAYS,
     mock: mock.nostr,
     store,
+    onEvent: (event) => {
+      void inbox.handleNostrEvent(event).catch((error: unknown) => {
+        const message = error instanceof Error ? error.message : String(error);
+        console.error("[inbox] nostr event failed", error);
+        store.setInbox({ lastError: message });
+      });
+    },
   });
+  poolRef = listener.pool;
 
   const http = await startHttpServer({
     host: env.AGENT_HTTP_HOST,
     port: env.AGENT_HTTP_PORT,
     store,
     mock,
+    inbox,
+    llm,
   });
 
   console.info("NpubBot agent");
@@ -68,9 +88,11 @@ async function main(): Promise<void> {
   );
   console.info(`  health   ${http.url}/health`);
   console.info(`  status   ${http.url}/status`);
+  console.info(`  inbound  POST ${http.url}/dev/inbound`);
+  console.info(`  markpaid POST ${http.url}/dev/mark-paid`);
 
   const shutdown = async () => {
-    stopNostr();
+    listener.stop();
     await http.close();
     process.exit(0);
   };

@@ -38,3 +38,8 @@ Thumbs.db
 
 # Optional local tooling
 .pnpm-store/
+
+# Agent session persistence
+apps/agent/data/
+*.json.tmp
+

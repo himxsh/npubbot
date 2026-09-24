@@ -1,18 +1,29 @@
 import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
-import type { AgentStatus, HealthResponse } from "@npubbot/shared";
+import {
+  inboundDevRequestSchema,
+  markPaidRequestSchema,
+  type AgentStatus,
+  type HealthResponse,
+  type MockFlags,
+} from "@npubbot/shared";
+import { ZodError } from "zod";
 import type { AgentStore } from "../store.ts";
-import type { MockFlags } from "@npubbot/shared";
+import type { Inbox } from "../inbox.ts";
+import type { LlmClient } from "../llm/client.ts";
+import { isLoopbackHost, readJsonBody } from "./body.ts";
 
 export type HttpServerOptions = {
   host: string;
   port: number;
   store: AgentStore;
   mock: MockFlags;
+  inbox: Inbox;
+  llm: LlmClient;
 };
 
 function setCors(res: ServerResponse): void {
   res.setHeader("access-control-allow-origin", "*");
-  res.setHeader("access-control-allow-methods", "GET, OPTIONS");
+  res.setHeader("access-control-allow-methods", "GET, POST, OPTIONS");
   res.setHeader("access-control-allow-headers", "content-type");
 }
 
@@ -37,13 +48,31 @@ function pathnameOf(req: IncomingMessage): string {
   return url.pathname;
 }
 
+function errorMessage(error: unknown): string {
+  if (error instanceof ZodError) {
+    return error.issues.map((issue) => issue.message).join("; ");
+  }
+  if (error instanceof Error) {
+    return error.message;
+  }
+  return "unknown error";
+}
+
 export async function startHttpServer(options: HttpServerOptions): Promise<{
   close: () => Promise<void>;
   url: string;
 }> {
-  const { host, port, store, mock } = options;
+  const { host, port, store, mock, inbox, llm } = options;
+  const devEnabled = isLoopbackHost(host);
 
   const server = createServer((req, res) => {
+    void handle(req, res);
+  });
+
+  async function handle(
+    req: IncomingMessage,
+    res: ServerResponse,
+  ): Promise<void> {
     if (req.method === "OPTIONS") {
       setCors(res);
       res.writeHead(204);
@@ -51,38 +80,89 @@ export async function startHttpServer(options: HttpServerOptions): Promise<{
       return;
     }
 
-    if (req.method !== "GET") {
-      sendJson(res, 405, { error: "method_not_allowed" });
-      return;
-    }
-
     const path = pathnameOf(req);
+    const method = req.method ?? "GET";
 
-    switch (path) {
-      case "/":
+    try {
+      if (method === "GET" && path === "/") {
         sendJson(res, 200, {
           service: "npubbot-agent",
-          endpoints: ["/health", "/status"],
+          endpoints: [
+            "/health",
+            "/status",
+            "/dev/inbound",
+            "/dev/mark-paid",
+          ],
         });
         return;
-      case "/health": {
+      }
+
+      if (method === "GET" && path === "/health") {
         const body: HealthResponse = {
           ok: true,
           service: "npubbot-agent",
           mock,
+          inbox: store.getInbox(),
+          llm: { mock: llm.mock, model: llm.model },
         };
         sendJson(res, 200, body);
         return;
       }
-      case "/status": {
+
+      if (method === "GET" && path === "/status") {
         const body: AgentStatus = store.snapshot();
         sendJson(res, 200, body);
         return;
       }
-      default:
+
+      if (method === "POST" && path === "/dev/inbound") {
+        if (!devEnabled) {
+          sendJson(res, 403, { error: "dev_endpoints_loopback_only" });
+          return;
+        }
+        const raw = await readJsonBody(req);
+        inboundDevRequestSchema.parse(raw);
+        const result = await inbox.injectDevMention(raw);
+        sendJson(res, 200, result);
+        return;
+      }
+
+      if (method === "POST" && path === "/dev/mark-paid") {
+        if (!devEnabled) {
+          sendJson(res, 403, { error: "dev_endpoints_loopback_only" });
+          return;
+        }
+        const raw = await readJsonBody(req);
+        const body = markPaidRequestSchema.parse(raw);
+        const result = await inbox.markPaid(body.quoteId);
+        sendJson(res, 200, result);
+        return;
+      }
+
+      if (method === "POST" || method === "GET") {
         sendJson(res, 404, { error: "not_found" });
+        return;
+      }
+
+      sendJson(res, 405, { error: "method_not_allowed" });
+    } catch (error) {
+      const message = errorMessage(error);
+      if (error instanceof ZodError) {
+        sendJson(res, 400, { error: message });
+        return;
+      }
+      if (message.startsWith("unknown quote")) {
+        sendJson(res, 404, { error: message });
+        return;
+      }
+      if (message === "quote expired") {
+        sendJson(res, 409, { error: message });
+        return;
+      }
+      console.error("[http]", error);
+      sendJson(res, 500, { error: message });
     }
-  });
+  }
 
   const url = `http://${host}:${port}`;
 

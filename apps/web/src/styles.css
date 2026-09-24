@@ -229,6 +229,45 @@ th {
   padding: 1px 6px;
 }
 
+.action-card {
+  min-height: 0;
+  margin-bottom: 16px;
+  display: grid;
+  gap: 12px;
+}
+
+textarea,
+button {
+  font: inherit;
+}
+
+textarea {
+  width: 100%;
+  background: var(--bg);
+  color: var(--text);
+  border: 1px solid var(--line);
+  padding: 10px;
+  resize: vertical;
+}
+
+button {
+  justify-self: start;
+  background: transparent;
+  color: var(--orange);
+  border: 1px solid var(--orange);
+  padding: 6px 12px;
+  cursor: pointer;
+}
+
+button:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+button:not(:disabled):hover {
+  background: #f7931a1a;
+}
+
 @media (max-width: 900px) {
   .grid,
   .grid-2 {

@@ -1,10 +1,16 @@
-import { useEffect, useState } from "react";
+import { useEffect, useState, type FormEvent } from "react";
 import type {
   AgentStatus,
   HealthResponse,
   PaymentState,
+  SessionState,
 } from "@npubbot/shared";
-import { fetchHealth, fetchStatus } from "./api.ts";
+import {
+  fetchHealth,
+  fetchStatus,
+  injectMockMention,
+  markInvoicePaid,
+} from "./api.ts";
 
 function assertNever(value: never, message?: string): never {
   throw new Error(message ?? `Unexpected value: ${String(value)}`);
@@ -34,6 +40,19 @@ function paymentStateText(state: PaymentState): string {
   }
 }
 
+function sessionStateText(state: SessionState): string {
+  switch (state) {
+    case "pending":
+      return "pending";
+    case "paid":
+      return "paid";
+    case "expired":
+      return "expired";
+    default:
+      return assertNever(state);
+  }
+}
+
 function shortNpub(npub: string): string {
   if (npub.length <= 20) {
     return npub;
@@ -51,6 +70,10 @@ function Flag({ on, label }: { on: boolean; label: string }) {
 
 export function App() {
   const [load, setLoad] = useState<LoadState>({ kind: "loading" });
+  const [mention, setMention] = useState("what's the mempool saying?");
+  const [senderNpub, setSenderNpub] = useState<string | undefined>();
+  const [actionError, setActionError] = useState<string | null>(null);
+  const [busy, setBusy] = useState<string | null>(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -87,6 +110,44 @@ export function App() {
     };
   }, []);
 
+  async function refresh(): Promise<void> {
+    const [health, status] = await Promise.all([
+      fetchHealth(),
+      fetchStatus(),
+    ]);
+    setLoad({ kind: "online", health, status });
+  }
+
+  async function onInject(event: FormEvent): Promise<void> {
+    event.preventDefault();
+    setActionError(null);
+    setBusy("inject");
+    try {
+      const result = await injectMockMention(mention.trim(), senderNpub);
+      setSenderNpub(result.senderNpub);
+      await refresh();
+    } catch (error) {
+      setActionError(error instanceof Error ? error.message : "inject failed");
+    } finally {
+      setBusy(null);
+    }
+  }
+
+  async function onMarkPaid(quoteId: string): Promise<void> {
+    setActionError(null);
+    setBusy(quoteId);
+    try {
+      await markInvoicePaid(quoteId);
+      await refresh();
+    } catch (error) {
+      setActionError(
+        error instanceof Error ? error.message : "mark-paid failed",
+      );
+    } finally {
+      setBusy(null);
+    }
+  }
+
   return (
     <div className="shell">
       <header className="mast">
@@ -95,8 +156,8 @@ export function App() {
           <h1>NpubBot</h1>
         </div>
         <p className="lede">
-          Nostr in, sats through the gate, one paid tool out. This dashboard
-          polls the agent stubs — it is not a user-facing client.
+          Mentions hit a Cashu admission gate. Unpaid traffic gets a quote, not
+          an LLM answer. Mark a mock invoice paid to unlock the session.
         </p>
       </header>
 
@@ -112,6 +173,8 @@ export function App() {
         </p>
       ) : null}
 
+      {actionError ? <p className="banner banner-warn">{actionError}</p> : null}
+
       {load.kind === "online" ? (
         <>
           <section className="flags">
@@ -119,7 +182,43 @@ export function App() {
             <Flag on={load.status.mock.cashu} label="cashu" />
             <Flag on={load.status.mock.llm} label="llm" />
             <span className="flag flag-ok">health ok</span>
+            <span className="flag">
+              relays {load.status.inbox.connected.length}/
+              {load.status.inbox.relays.length}
+              {load.status.inbox.mock ? " · mock inbox" : ""}
+            </span>
           </section>
+
+          {load.status.mock.nostr ? (
+            <form className="card action-card" onSubmit={(event) => void onInject(event)}>
+              <h2>Mock mention</h2>
+              <p className="empty">
+                Relays are not connected in mock Nostr. Inject a kind-1 mention
+                to exercise the gate.
+                {senderNpub ? (
+                  <>
+                    {" "}
+                    Reusing {shortNpub(senderNpub)}.{" "}
+                    <button
+                      type="button"
+                      onClick={() => setSenderNpub(undefined)}
+                    >
+                      New sender
+                    </button>
+                  </>
+                ) : null}
+              </p>
+              <textarea
+                value={mention}
+                onChange={(event) => setMention(event.target.value)}
+                rows={3}
+                required
+              />
+              <button type="submit" disabled={busy !== null || mention.trim() === ""}>
+                {busy === "inject" ? "Sending…" : "Send mock mention"}
+              </button>
+            </form>
+          ) : null}
 
           <section className="grid">
             <article className="card">
@@ -159,8 +258,8 @@ export function App() {
                   <dd>{formatSats(load.status.gate.admissionSats)}</dd>
                 </div>
                 <div>
-                  <dt>tool spend</dt>
-                  <dd>{formatSats(load.status.gate.toolSpendSats)}</dd>
+                  <dt>session ttl</dt>
+                  <dd>{load.status.gate.sessionTtlSeconds}s</dd>
                 </div>
               </dl>
             </article>
@@ -193,30 +292,64 @@ export function App() {
 
           <section className="grid grid-2">
             <article className="card">
-              <h2>Payments</h2>
-              {load.status.payments.length === 0 ? (
-                <p className="empty">No payments recorded.</p>
+              <h2>Sessions & payments</h2>
+              {load.status.sessions.length === 0 &&
+              load.status.payments.length === 0 ? (
+                <p className="empty">No quotes yet. Send a mention first.</p>
               ) : (
-                <table>
-                  <thead>
-                    <tr>
-                      <th>dir</th>
-                      <th>amount</th>
-                      <th>state</th>
-                      <th>note</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {load.status.payments.map((row) => (
-                      <tr key={row.id}>
-                        <td>{row.direction}</td>
-                        <td>{formatSats(row.amountSats)}</td>
-                        <td>{paymentStateText(row.state)}</td>
-                        <td>{row.note}</td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
+                <>
+                  {load.status.sessions.length > 0 ? (
+                    <ul className="events">
+                      {load.status.sessions.map((session) => (
+                        <li key={session.quoteId}>
+                          <p>
+                            <span className="tag">{sessionStateText(session.state)}</span>
+                            <span className="mono muted">
+                              {formatSats(session.amountSats)} · {session.quoteId}
+                            </span>
+                          </p>
+                          <p className="mono muted">{shortNpub(session.senderNpub)}</p>
+                          {session.pendingPromptPreview ? (
+                            <p>held: {session.pendingPromptPreview}</p>
+                          ) : null}
+                          {session.state === "pending" && load.status.mock.cashu ? (
+                            <button
+                              type="button"
+                              onClick={() => void onMarkPaid(session.quoteId)}
+                              disabled={busy !== null}
+                            >
+                              {busy === session.quoteId
+                                ? "Unlocking…"
+                                : "Mark invoice paid"}
+                            </button>
+                          ) : null}
+                        </li>
+                      ))}
+                    </ul>
+                  ) : null}
+                  {load.status.payments.length > 0 ? (
+                    <table>
+                      <thead>
+                        <tr>
+                          <th>dir</th>
+                          <th>amount</th>
+                          <th>state</th>
+                          <th>note</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {load.status.payments.map((row) => (
+                          <tr key={row.id}>
+                            <td>{row.direction}</td>
+                            <td>{formatSats(row.amountSats)}</td>
+                            <td>{paymentStateText(row.state)}</td>
+                            <td>{row.note}</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  ) : null}
+                </>
               )}
             </article>
 
@@ -229,6 +362,7 @@ export function App() {
                   {load.status.events.map((event) => (
                     <li key={event.id}>
                       <p>
+                        <span className="tag">{event.direction}</span>
                         <span className="tag">{event.label}</span>
                         {event.gated ? <span className="tag">gated</span> : null}
                         <span className="mono muted">kind {event.kind}</span>
