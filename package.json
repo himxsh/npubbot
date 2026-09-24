@@ -1,0 +1,22 @@
+{
+  "name": "npubbot",
+  "private": true,
+  "version": "0.0.0",
+  "description": "Nostr-native AI agent that gets paid in sats (Cashu).",
+  "license": "MIT",
+  "type": "module",
+  "packageManager": "pnpm@10.33.3",
+  "engines": {
+    "node": ">=22"
+  },
+  "scripts": {
+    "dev": "pnpm run --parallel --filter @npubbot/agent --filter @npubbot/web dev",
+    "build": "pnpm --filter @npubbot/shared typecheck && pnpm --filter @npubbot/agent typecheck && pnpm --filter @npubbot/web build",
+    "typecheck": "pnpm --filter @npubbot/shared typecheck && pnpm --filter @npubbot/agent typecheck && pnpm --filter @npubbot/web typecheck",
+    "agent": "pnpm --filter @npubbot/agent start",
+    "web": "pnpm --filter @npubbot/web dev"
+  },
+  "pnpm": {
+    "onlyBuiltDependencies": ["esbuild"]
+  }
+}

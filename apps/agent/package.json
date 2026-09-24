@@ -1,0 +1,27 @@
+{
+  "name": "@npubbot/agent",
+  "private": true,
+  "version": "0.0.0",
+  "type": "module",
+  "license": "MIT",
+  "scripts": {
+    "dev": "tsx watch src/index.ts",
+    "start": "tsx src/index.ts",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "build": "tsc -p tsconfig.json --noEmit"
+  },
+  "dependencies": {
+    "@cashu/cashu-ts": "^4.11.0",
+    "@npubbot/shared": "workspace:*",
+    "dotenv": "^16.6.1",
+    "nostr-tools": "^2.25.2",
+    "tsx": "^4.20.5",
+    "ws": "^8.18.3",
+    "zod": "^4.1.11"
+  },
+  "devDependencies": {
+    "@types/node": "^22.15.30",
+    "@types/ws": "^8.18.1",
+    "typescript": "^5.9.2"
+  }
+}
