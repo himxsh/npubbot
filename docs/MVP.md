@@ -1,38 +1,26 @@
 # MVP
 
-End-to-end loop for NpubBot. The current branch implements the **mock happy path** plus live Nostr mention subscribe. Cashu mint settlement and DM decryption remain seams.
+End-to-end loop for NpubBot. Mock path: paywalled mentions, mark-paid, then optional `fetch_url` spend. Cashu mint settlement and DM decryption remain seams.
 
 ## Goal
 
-A Nostr user can mention the agent’s npub, pay a small Cashu (or Lightning-via-mint) amount, and receive an LLM reply. Encrypted DMs are recorded but not answered until decryption lands. An operator can watch balance, payments, and events on localhost, and mark mock invoices paid.
-
-## Actors
-
-- **User** — any Nostr client (mentions today; DMs later)
-- **Agent** — `apps/agent`, keyed by `NOSTR_NSEC`
-- **Mint** — Cashu mint at `CASHU_MINT_URL` (TODO hook; mock quotes meanwhile)
-- **LLM** — OpenAI-compatible HTTP API, or mock if no key
-- **Operator** — `apps/web` on loopback
+A Nostr user can mention the agent’s npub, pay a small Cashu amount, and receive an LLM reply. If they ask to fetch a URL, the **agent** spends sats from its own wallet to run `fetch_url`, then answers with the result. An operator watches this on localhost.
 
 ## Loop (what runs now)
 
-1. **Listen.** Live: `SimplePool.subscribe` on `NOSTR_RELAYS` for kind 1 `#p` mentions, plus kind 4 / 1059 DMs. Mock: `POST /dev/inbound`.
-2. **DMs.** Kind 4 / gift wraps are stored as encrypted stubs. They do **not** enter the gate.
-   - Plug-in: `TODO(nostr-dm-encryption)`.
-3. **Gate.** If the sender has no paid session, create an admission quote and reply with pay instructions. The user text is **not** sent to the LLM.
-4. **Pay.** Mock: `POST /dev/mark-paid`. Live mint: `TODO(cashu-mint)` (`createMintQuoteBolt11` / proofs). Sessions persist in `data/sessions.json`.
-5. **Think.** After payment, the held prompt (or a later mention in the session TTL) is sent to the LLM.
-6. **Reply.** Kind-1 reply tagged to the sender (logged only in mock Nostr).
-7. **Observe.** Dashboard polls `/health` and `/status` and can inject mentions / mark invoices paid.
-
-## DM tradeoff
-
-Mentions are straightforward plaintext and are the paid inbox. NIP-04 kind-4 and NIP-17 gift wraps need decryption before we can safely gate or answer them. Until `TODO(nostr-dm-encryption)`, those events are visible on the dashboard and ignored by the LLM.
+1. **Listen.** Live: kind 1 `#p` mentions. Mock: `POST /dev/inbound`. DMs logged only (`TODO(nostr-dm-encryption)`).
+2. **Gate.** Unpaid senders get a quote. User text is not sent to the LLM.
+3. **Pay.** `POST /dev/mark-paid` (mock). Sessions in `data/sessions.json`.
+4. **Route.** Paid text with an http(s) URL → `fetch_url` path. Lookup/search/fetch without a URL → ask for a link (no spend). Otherwise paid chat.
+5. **Spend.** If routing to the tool: require wallet ≥ `TOOL_SPEND_SATS`, debit (mock; `TODO(cashu-mint)` melt), GET with timeout, feed result to the LLM.
+6. **Broke.** If the agent cannot afford the tool, reply with wallet vs price. Do not fetch.
+7. **Reply.** Kind-1 (or mock outbound) to the sender.
+8. **Observe.** Dashboard: events, sessions, mark-paid, inbound inject, tool spend log.
 
 ## Operator checks
 
 1. `pnpm install` and `pnpm typecheck`
-2. `pnpm agent` → `GET /health` and `/status`
-3. `POST /dev/inbound` → paywall reply, no LLM answer in the paywall text
-4. `POST /dev/mark-paid` → full mock LLM reply appears on `/status`
-5. Dashboard shows events, sessions, and a **Mark invoice paid** control
+2. Unpaid inbound → paywall, no LLM answer
+3. Mark-paid → full reply
+4. `fetch https://example.com` on the paid session → balance drops, reply includes fetch result
+5. Tool spend appears on `/status` and the dashboard

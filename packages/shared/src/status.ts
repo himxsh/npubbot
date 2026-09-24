@@ -76,9 +76,13 @@ export const sessionSummarySchema = z.object({
 
 export type SessionSummary = z.infer<typeof sessionSummarySchema>;
 
+export const toolNameSchema = z.literal("fetch_url");
+export type ToolName = z.infer<typeof toolNameSchema>;
+
 export const toolSpendSchema = z.object({
   id: z.string(),
-  tool: z.literal("lookup_note"),
+  tool: toolNameSchema,
+  url: z.string().nullable(),
   amountSats: z.number().int().nonnegative(),
   ok: z.boolean(),
   detail: z.string(),
@@ -128,6 +132,7 @@ export const agentStatusSchema = z.object({
     admissionSats: z.number().int().nonnegative(),
     toolSpendSats: z.number().int().nonnegative(),
     sessionTtlSeconds: z.number().int().positive(),
+    toolFetchTimeoutMs: z.number().int().positive(),
   }),
   mock: z.object({
     nostr: z.boolean(),
@@ -138,6 +143,7 @@ export const agentStatusSchema = z.object({
   sessions: z.array(sessionSummarySchema),
   payments: z.array(paymentRecordSchema),
   events: z.array(nostrEventSummarySchema),
+  toolSpends: z.array(toolSpendSchema),
   lastToolSpend: toolSpendSchema.nullable(),
 });
 
@@ -159,6 +165,9 @@ export type MarkPaidRequest = z.infer<typeof markPaidRequestSchema>;
 export const inboundOutcomeSchema = z.enum([
   "paywall",
   "full",
+  "tool",
+  "tool-unaffordable",
+  "tool-need-url",
   "ignored-dm",
   "ignored-self",
   "duplicate",

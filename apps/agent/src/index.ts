@@ -25,6 +25,7 @@ async function main(): Promise<void> {
       admissionSats: env.PAYMENT_GATE_SATS,
       toolSpendSats: env.TOOL_SPEND_SATS,
       sessionTtlSeconds: env.SESSION_TTL_SECONDS,
+      toolFetchTimeoutMs: env.TOOL_FETCH_TIMEOUT_MS,
     },
     mock.cashu ? env.MOCK_BALANCE_SATS : 0,
     cashu.mintUrl,

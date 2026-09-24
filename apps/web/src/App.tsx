@@ -194,7 +194,8 @@ export function App() {
               <h2>Mock mention</h2>
               <p className="empty">
                 Relays are not connected in mock Nostr. Inject a kind-1 mention
-                to exercise the gate.
+                to exercise the gate. After paying, try{" "}
+                <code>fetch https://example.com</code>.
                 {senderNpub ? (
                   <>
                     {" "}
@@ -258,34 +259,38 @@ export function App() {
                   <dd>{formatSats(load.status.gate.admissionSats)}</dd>
                 </div>
                 <div>
-                  <dt>session ttl</dt>
-                  <dd>{load.status.gate.sessionTtlSeconds}s</dd>
+                  <dt>tool spend</dt>
+                  <dd>{formatSats(load.status.gate.toolSpendSats)}</dd>
                 </div>
               </dl>
             </article>
 
             <article className="card">
-              <h2>Last tool spend</h2>
-              {load.status.lastToolSpend ? (
-                <dl>
-                  <div>
-                    <dt>tool</dt>
-                    <dd className="mono">{load.status.lastToolSpend.tool}</dd>
-                  </div>
-                  <div>
-                    <dt>amount</dt>
-                    <dd>{formatSats(load.status.lastToolSpend.amountSats)}</dd>
-                  </div>
-                  <div>
-                    <dt>result</dt>
-                    <dd>
-                      {load.status.lastToolSpend.ok ? "ok" : "blocked"} ·{" "}
-                      {load.status.lastToolSpend.detail}
-                    </dd>
-                  </div>
-                </dl>
+              <h2>Tool spends</h2>
+              {load.status.toolSpends.length === 0 ? (
+                <p className="empty">
+                  No fetch_url spends yet. After paying, send{" "}
+                  <code>fetch https://example.com</code>.
+                </p>
               ) : (
-                <p className="empty">No tool spend yet.</p>
+                <ul className="events">
+                  {load.status.toolSpends.map((spend) => (
+                    <li key={spend.id}>
+                      <p>
+                        <span className="tag">
+                          {spend.ok ? "ok" : "blocked"}
+                        </span>
+                        <span className="mono muted">
+                          {spend.tool} · {formatSats(spend.amountSats)}
+                        </span>
+                      </p>
+                      {spend.url ? (
+                        <p className="mono muted">{spend.url}</p>
+                      ) : null}
+                      <p>{spend.detail}</p>
+                    </li>
+                  ))}
+                </ul>
               )}
             </article>
           </section>

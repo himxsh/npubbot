@@ -62,6 +62,7 @@ export const agentEnvSchema = z.object({
   CASHU_MINT_URL: optionalString,
   PAYMENT_GATE_SATS: z.coerce.number().int().nonnegative().default(21),
   TOOL_SPEND_SATS: z.coerce.number().int().nonnegative().default(10),
+  TOOL_FETCH_TIMEOUT_MS: z.coerce.number().int().positive().default(8000),
   MOCK_BALANCE_SATS: z.coerce.number().int().nonnegative().default(210),
   SESSION_TTL_SECONDS: z.coerce.number().int().positive().default(900),
   QUOTE_TTL_SECONDS: z.coerce.number().int().positive().default(3600),
