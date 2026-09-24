@@ -20,6 +20,7 @@ export class AgentStore {
   private balanceSats: number;
   private readonly payments: PaymentRecord[] = [];
   private readonly events: NostrEventSummary[] = [];
+  private readonly toolSpends: ToolSpendRecord[] = [];
   private lastToolSpend: ToolSpendRecord | null = null;
   private readonly seenEventIds = new Set<string>();
   private inbox: InboxStatus;
@@ -32,6 +33,7 @@ export class AgentStore {
       admissionSats: number;
       toolSpendSats: number;
       sessionTtlSeconds: number;
+      toolFetchTimeoutMs: number;
     },
     openingBalanceSats: number,
     private readonly mintUrl: string | null,
@@ -102,6 +104,10 @@ export class AgentStore {
 
   recordToolSpend(record: ToolSpendRecord): void {
     this.lastToolSpend = record;
+    this.toolSpends.unshift(record);
+    if (this.toolSpends.length > MAX_ROWS) {
+      this.toolSpends.length = MAX_ROWS;
+    }
   }
 
   snapshot(): AgentStatus {
@@ -119,6 +125,7 @@ export class AgentStore {
       sessions: this.sessionsView(),
       payments: [...this.payments],
       events: [...this.events],
+      toolSpends: [...this.toolSpends],
       lastToolSpend: this.lastToolSpend,
     };
   }

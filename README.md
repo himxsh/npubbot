@@ -11,7 +11,7 @@ Nostr relays ──► apps/agent inbox
                       │
                       ├─ payment sessions (quote → mark-paid / mint TODO)
                       ├─ OpenAI-compatible LLM (skipped unless paid)
-                      ├─ tool spender stub
+                      ├─ one tool: fetch_url (agent spends sats)
                       └─ HTTP  /health  /status  /dev/inbound  /dev/mark-paid
                               ▲
                               │ poll + mock controls
@@ -22,8 +22,8 @@ packages/shared — Zod env schema + status payload types
 
 | Package | Role |
 | --- | --- |
-| `apps/agent` | Inbox, payment gate, LLM, loopback status + mock-pay APIs |
-| `apps/web` | Dashboard: events, sessions, mark-paid, mock mention |
+| `apps/agent` | Inbox, payment gate, LLM, `fetch_url` spend, loopback mock APIs |
+| `apps/web` | Dashboard: events, sessions, mark-paid, mock mention, tool spends |
 | `packages/shared` | Shared TypeScript types and env schema |
 
 Tracks: **Cypherpunk** (Cashu privacy by default), **Freedom Stack** (Nostr + ecash), **Machine Money** (agent earns and spends sats). See [docs/TRACKS.md](docs/TRACKS.md) and [docs/MVP.md](docs/MVP.md).
@@ -54,6 +54,7 @@ With `MOCK_MODE=true` (default):
 2. The agent replies with a Cashu **quote**, not an LLM answer.
 3. Click **Mark invoice paid** (or `POST /dev/mark-paid` with `{ "quoteId": "…" }`).
 4. The held prompt is sent to the (mock) LLM and a full reply is logged.
+5. Send a tool request (`fetch https://example.com`). The agent debits `TOOL_SPEND_SATS`, fetches the URL, and the reply includes the tool result.
 
 ```bash
 curl -sS http://127.0.0.1:3847/dev/inbound \
@@ -63,6 +64,10 @@ curl -sS http://127.0.0.1:3847/dev/inbound \
 curl -sS http://127.0.0.1:3847/dev/mark-paid \
   -H 'content-type: application/json' \
   -d '{"quoteId":"QUOTE_ID"}'
+# paid session: spend sats to fetch
+curl -sS http://127.0.0.1:3847/dev/inbound \
+  -H 'content-type: application/json' \
+  -d '{"text":"fetch https://example.com","senderNpub":"SENDER_NPUB"}'
 ```
 
 `/dev/*` is served only when the agent binds loopback (`127.0.0.1`).
@@ -98,6 +103,8 @@ Copy [`.env.example`](.env.example). **Do not put real nsecs or API keys in git.
 | `NOSTR_NSEC` | Agent secret (`nsec1…`). Empty → ephemeral mock identity |
 | `CASHU_MINT_URL` | Mint URL. **TODO(cashu-mint)** still falls back to mock quotes |
 | `PAYMENT_GATE_SATS` | Admission amount before a full reply |
+| `TOOL_SPEND_SATS` | What the agent pays from its wallet to run `fetch_url` |
+| `TOOL_FETCH_TIMEOUT_MS` | Timeout for `fetch_url` |
 | `SESSION_TTL_SECONDS` | Paid session lifetime |
 | `QUOTE_TTL_SECONDS` | Unpaid quote lifetime |
 | `SESSION_STORE_PATH` | JSON file for sessions (`apps/agent/data/sessions.json`) |

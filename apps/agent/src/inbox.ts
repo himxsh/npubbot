@@ -1,12 +1,14 @@
 import { generateSecretKey, getPublicKey, type Event } from "nostr-tools/pure";
 import { nip19 } from "nostr-tools";
 import {
+  assertNever,
   inboundDevRequestSchema,
+  type AgentEnv,
   type InboundDevResponse,
   type InboundOutcome,
   type MarkPaidResponse,
+  type MockFlags,
 } from "@npubbot/shared";
-import type { AgentEnv, MockFlags } from "@npubbot/shared";
 import { newId, syntheticEventId } from "./ids.ts";
 import type { AgentStore } from "./store.ts";
 import { SessionStore, type SenderSession } from "./sessions.ts";
@@ -21,6 +23,13 @@ import type { AgentIdentity } from "./nostr/identity.ts";
 import { classifyInboundKind } from "./nostr/classify.ts";
 import { publishTextReply } from "./nostr/publish.ts";
 import type { SimplePool } from "nostr-tools/pool";
+import { routeIntent } from "./tools/intent.ts";
+import { fetchUrl, formatFetchResult } from "./tools/fetch-url.ts";
+import {
+  insufficientToolMessage,
+  needUrlMessage,
+  spendForTool,
+} from "./tools/spender.ts";
 
 export type Inbox = {
   handleNostrEvent: (event: Event) => Promise<void>;
@@ -112,6 +121,53 @@ export function createInbox(deps: InboxDeps): Inbox {
     return result.text.slice(0, 2000);
   }
 
+  async function answerPaidPrompt(text: string): Promise<{
+    reply: string;
+    outcome: Extract<
+      InboundOutcome,
+      "full" | "tool" | "tool-unaffordable" | "tool-need-url"
+    >;
+  }> {
+    const intent = routeIntent(text);
+    switch (intent.kind) {
+      case "chat": {
+        const reply = await completePaid(text);
+        return { reply, outcome: "full" };
+      }
+      case "fetch_url_missing":
+        return {
+          reply: needUrlMessage(env.TOOL_SPEND_SATS),
+          outcome: "tool-need-url",
+        };
+      case "fetch_url": {
+        const spend = spendForTool({
+          store,
+          cashu,
+          amountSats: env.TOOL_SPEND_SATS,
+          url: intent.url,
+        });
+        if (!spend.ok) {
+          return {
+            reply: insufficientToolMessage({
+              balanceSats: store.getBalance(),
+              amountSats: env.TOOL_SPEND_SATS,
+            }),
+            outcome: "tool-unaffordable",
+          };
+        }
+        const fetched = await fetchUrl(intent.url, env.TOOL_FETCH_TIMEOUT_MS);
+        const toolBlob = formatFetchResult(fetched);
+        const result = await llm.complete({
+          system: `${paidSystemPrompt()} A fetch_url result is attached. Use it in the answer.`,
+          user: `User: ${text}\n\n${toolBlob}`,
+        });
+        return { reply: result.text.slice(0, 2000), outcome: "tool" };
+      }
+      default:
+        return assertNever(intent);
+    }
+  }
+
   async function openPaywall(input: {
     senderPubkeyHex: string;
     senderNpub: string;
@@ -196,14 +252,14 @@ export function createInbox(deps: InboxDeps): Inbox {
         gated: false,
         quoteId,
       });
-      const reply = await completePaid(input.text);
+      const answered = await answerPaidPrompt(input.text);
       await sendReply({
-        content: reply,
+        content: answered.reply,
         replyTo: { id: input.eventId, pubkeyHex: input.senderPubkeyHex },
         gated: false,
         quoteId,
       });
-      return { outcome: "full", reply, quoteId };
+      return { outcome: answered.outcome, reply: answered.reply, quoteId };
     }
 
     const paywall = await openPaywall({
@@ -374,7 +430,8 @@ export function createInbox(deps: InboxDeps): Inbox {
       const pending = sessions.clearPendingPrompt(quoteId);
       let reply: string | null = null;
       if (pending) {
-        reply = await completePaid(pending.text);
+        const answered = await answerPaidPrompt(pending.text);
+        reply = answered.reply;
         await sendReply({
           content: reply,
           replyTo: { id: pending.eventId, pubkeyHex: updated.senderPubkeyHex },

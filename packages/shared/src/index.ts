@@ -34,5 +34,6 @@ export {
   type PaymentState,
   type SessionState,
   type SessionSummary,
+  type ToolName,
   type ToolSpendRecord,
 } from "./status.ts";
