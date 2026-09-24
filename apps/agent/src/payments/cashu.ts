@@ -1,4 +1,4 @@
-import { MintQuoteState, Wallet, type Proof } from "@cashu/cashu-ts";
+import { MeltQuoteState, MintQuoteState, Wallet, type Proof } from "@cashu/cashu-ts";
 import { assertNever } from "@npubbot/shared";
 import { AgentFaultError } from "../errors.ts";
 import { newId } from "../ids.ts";
@@ -21,6 +21,10 @@ export type CashuReceiveResult = {
   amountSats: number;
 };
 
+export type MeltForToolResult =
+  | { ok: true; amountSats: number; feeSats: number; remainingSats: number }
+  | { ok: false; reason: "insufficient" | "wallet"; message: string };
+
 export type CashuHandle = {
   readonly mock: boolean;
   readonly mintUrl: string | null;
@@ -28,6 +32,7 @@ export type CashuHandle = {
   createQuote: (amountSats: number) => Promise<AdmissionQuote>;
   settleQuote: (quoteId: string) => Promise<QuoteSettleResult>;
   receiveToken: (token: string) => Promise<CashuReceiveResult>;
+  meltForTool: (amountSats: number) => Promise<MeltForToolResult>;
   proofBalanceSats: () => number;
 };
 
@@ -58,12 +63,13 @@ function amountFromQuote(value: { amount?: { toNumber: () => number } }): number
 
 /**
  * Mock by default (`MOCK_MODE=true` or no `CASHU_MINT_URL`).
- * Live: `@cashu/cashu-ts` Wallet against `CASHU_MINT_URL` — quote + receive.
+ * Live: `@cashu/cashu-ts` Wallet — quote, receive, and melt for fetch_url.
  *
- * Proofs stay in a WeakMap vault and are never logged or returned on /status.
+ * HTTP GET has no Lightning invoice, so tool spend melts to a mint-issued
+ * bolt11 (self-pay) and does **not** remint that quote. Proofs leave the vault.
  *
- * TODO(cashu-mint): persist proofs encrypted at rest; meltProofsBolt11 when
- * fetch_url has a Lightning sink (no LN invoice for the HTTP GET today).
+ * Proofs stay in process memory and are never logged or returned on /status.
+ * TODO(cashu-mint): persist proofs encrypted at rest across restarts.
  */
 export async function createCashuHandle(
   mintUrl: string | undefined,
@@ -87,6 +93,9 @@ export async function createCashuHandle(
           "mock wallet does not receive Cashu tokens",
         );
       },
+      async meltForTool() {
+        throw new AgentFaultError("wallet", "mock wallet does not melt");
+      },
       proofBalanceSats: () => 0,
     };
   }
@@ -94,6 +103,11 @@ export async function createCashuHandle(
   const wallet = new Wallet(mintUrl);
   const vault: Proof[] = [];
   let ready = false;
+
+  function replaceVault(next: Proof[]): void {
+    vault.length = 0;
+    vault.push(...next);
+  }
   const handle: CashuHandle = {
     mock: false,
     mintUrl,
@@ -181,6 +195,85 @@ export async function createCashuHandle(
         handle.lastError = "token receive failed";
         logError("cashu", error);
         throw new AgentFaultError("wallet");
+      }
+    },
+    async meltForTool(amountSats) {
+      if (amountSats <= 0) {
+        return {
+          ok: true,
+          amountSats: 0,
+          feeSats: 0,
+          remainingSats: sumProofs(vault),
+        };
+      }
+      try {
+        await ensureReady();
+        const held = sumProofs(vault);
+        if (held < amountSats) {
+          return {
+            ok: false,
+            reason: "insufficient",
+            message: `insufficient proofs (${held} sat < ${amountSats} sat)`,
+          };
+        }
+
+        let sinkRequest: string;
+        try {
+          const sink = await wallet.createMintQuoteBolt11(
+            amountSats,
+            "NpubBot fetch_url fee",
+          );
+          sinkRequest = sink.request;
+        } catch {
+          const sink = await wallet.createMintQuoteBolt11(amountSats);
+          sinkRequest = sink.request;
+        }
+
+        const meltQuote = await wallet.createMeltQuoteBolt11(sinkRequest);
+        const need = meltQuote.amount.add(meltQuote.fee_reserve);
+        const needSats = need.toNumber();
+        if (held < needSats) {
+          return {
+            ok: false,
+            reason: "insufficient",
+            message: `insufficient proofs for melt+fee (${held} sat < ${needSats} sat)`,
+          };
+        }
+
+        const { keep, send } = await wallet.send(need, vault, {
+          includeFees: true,
+        });
+        replaceVault([...keep, ...send]);
+
+        const melted = await wallet.meltProofsBolt11(meltQuote, send);
+        switch (melted.quote.state) {
+          case MeltQuoteState.UNPAID:
+            handle.lastError = "melt unpaid";
+            logWarn("cashu", "melt quote still unpaid — proofs kept");
+            return {
+              ok: false,
+              reason: "wallet",
+              message: "melt unpaid",
+            };
+          case MeltQuoteState.PENDING:
+          case MeltQuoteState.PAID: {
+            replaceVault([...keep, ...melted.change]);
+            const remainingSats = sumProofs(vault);
+            const feeSats = meltQuote.fee_reserve.toNumber();
+            logInfo(
+              "cashu",
+              `melted ${amountSats} sat (+${feeSats} sat fee) for fetch_url self-pay; remaining ${remainingSats} sat — proofs not logged`,
+            );
+            handle.lastError = null;
+            return { ok: true, amountSats, feeSats, remainingSats };
+          }
+          default:
+            return assertNever(melted.quote.state);
+        }
+      } catch (error) {
+        handle.lastError = "melt failed";
+        logError("cashu", error);
+        return { ok: false, reason: "wallet", message: "melt failed" };
       }
     },
     proofBalanceSats: () => sumProofs(vault),

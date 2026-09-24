@@ -9,7 +9,7 @@ NpubBot is shaped so implementation can speak to these BOSS Battle tracks. Nothi
 - Logs, `/status`, and the dashboard redact nsecs, API keys, and Cashu tokens/proofs.
 - A real mint is a single config URL (`CASHU_MINT_URL`) so the operator can pick a mint they trust. `MOCK_MODE=true` never contacts it.
 
-Live quote + receive is wired with `@cashu/cashu-ts` when `MOCK_MODE=false` and `CASHU_MINT_URL` is set. **TODO(cashu-mint):** encrypted proof persistence and Lightning melt for tool spend.
+Live quote, receive, and tool-spend melt are wired with `@cashu/cashu-ts` when `MOCK_MODE=false` and `CASHU_MINT_URL` is set. **TODO(cashu-mint):** encrypted proof persistence across restarts.
 
 ## Freedom Stack — Nostr + ecash
 
@@ -23,7 +23,7 @@ Live quote + receive is wired with `@cashu/cashu-ts` when `MOCK_MODE=false` and 
 ## Machine Money — the agent earns and spends sats
 
 - **Earn:** a small payment unlocks a full LLM reply (payment gate / paid session).
-- **Spend:** if the user asks to fetch/lookup/search a URL, the agent debits `TOOL_SPEND_SATS` from its own wallet and runs **one** tool: `fetch_url` (timeout, public http(s) only).
+- **Spend:** if the user asks to fetch/lookup/search a URL, the agent pays `TOOL_SPEND_SATS` from its own wallet (mock debit, or live Cashu **melt** to a mint-issued invoice) and runs **one** tool: `fetch_url` (timeout, public http(s) only).
 - Insufficient balance returns a clear “can’t afford fetch_url” reply — no silent skip.
 - Both admission (in) and tool spend (out) show on `/status` and the dashboard.
 
@@ -35,6 +35,6 @@ Live quote + receive is wired with `@cashu/cashu-ts` when `MOCK_MODE=false` and 
 4. The Nostr/mock reply includes the fetched page text (via the LLM, or the mock LLM echo).
 5. Dashboard **Tool spends** lists the debit.
 
-Real mint melt for that debit remains `TODO(cashu-mint)` in `apps/agent/src/tools/spender.ts`.
+Live mint melt for that spend is `meltForTool` in `apps/agent/src/payments/cashu.ts` (self-pay bolt11; not reminted). Mock mode keeps an in-memory debit.
 
-Devfolio field mapping: [DEMO.md](DEMO.md).
+Devfolio field mapping: [DEMO.md](DEMO.md). Paste-ready copy: [SUBMIT.md](SUBMIT.md).

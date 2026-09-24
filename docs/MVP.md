@@ -1,6 +1,6 @@
 # MVP
 
-End-to-end loop for NpubBot. Mock path: paywalled mentions, mark-paid, then optional `fetch_url` spend. Live mint quote/receive is behind `CASHU_MINT_URL` when `MOCK_MODE=false`. DM decryption remains a seam.
+End-to-end loop for NpubBot. Mock path: paywalled mentions, mark-paid, then optional `fetch_url` spend. Live mint quote/receive/melt is behind `CASHU_MINT_URL` when `MOCK_MODE=false`. DM decryption remains a seam.
 
 ## Goal
 
@@ -12,7 +12,7 @@ A Nostr user can mention the agent’s npub, pay a small Cashu amount, and recei
 2. **Gate.** Unpaid senders get a quote. User text is not sent to the LLM. Extra unpaid mentions from the same pubkey are soft-throttled (`UNPAID_COOLDOWN_MS`).
 3. **Pay.** Mock: `POST /dev/mark-paid`. Live: mint bolt11 quote + poll/`receive` token.
 4. **Route.** Paid text with an http(s) URL → `fetch_url` path. Lookup/search/fetch without a URL → ask for a link (no spend). Otherwise paid chat.
-5. **Spend.** If routing to the tool: require wallet ≥ `TOOL_SPEND_SATS`, debit (mock, or local debit after live admission; `TODO(cashu-mint)` melt), GET with timeout, feed result to the LLM.
+5. **Spend.** If routing to the tool: require wallet ≥ `TOOL_SPEND_SATS`. Mock: in-memory debit. Live: melt proofs to a mint-issued bolt11 (self-pay, not reminted) then GET with timeout and feed the result to the LLM.
 6. **Broke.** If the agent cannot afford the tool, reply with wallet vs price. Do not fetch.
 7. **Reply.** Live: kind-1 to the sender. Mock: sign locally, HTTP/dev returns the text. Publish failures are logged; the loop continues.
 8. **Observe.** Dashboard: events, sessions, mark-paid / check mint, inbound inject, tool spend log, relay/mint errors.

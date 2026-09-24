@@ -106,6 +106,10 @@ export class AgentStore {
     return true;
   }
 
+  setBalance(amountSats: number): void {
+    this.balanceSats = Math.max(0, amountSats);
+  }
+
   hasEvent(id: string): boolean {
     return this.seenEventIds.has(id);
   }
