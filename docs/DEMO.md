@@ -121,11 +121,11 @@ CASHU_MINT_URL=https://testnut.cashu.space
 # omit LLM_API_KEY to keep the mock LLM
 ```
 
-Restart `pnpm agent`. Unpaid inbound returns a **bolt11** invoice. The agent polls the mint every 5s (or click **Check mint payment**). Proofs stay in memory and never appear on `/status`.
+Restart `pnpm agent`. Unpaid inbound returns a **bolt11** invoice. The agent polls the mint every 5s (or click **Check mint payment**). Proofs stay in memory and never appear on `/status`. After a paid session, `fetch https://example.com` **melts** `TOOL_SPEND_SATS` to a mint-issued invoice (self-pay; not reminted) so sats leave the wallet. Fees may take an extra sat or two.
 
 If the mint is down, the sender gets a mint-unreachable message; the agent loop keeps running.
 
-Exact flip steps: [README](../README.md#live-cashu-mint). Remaining work: persist proofs, melt for tool spend (`TODO(cashu-mint)` in `apps/agent/src/tools/spender.ts`).
+Exact flip steps: [README](../README.md#live-cashu-mint). Remaining optional work: persist proofs across restarts (`TODO(cashu-mint)`).
 
 ## Live Nostr replies
 
@@ -139,7 +139,7 @@ With `MOCK_MODE=false` and `NOSTR_NSEC=nsec1…`, mentions on `NOSTR_RELAYS` get
 | --- | --- |
 | **Project title** | NpubBot |
 | **Tagline** | Nostr-native AI agent that gets paid in sats (Cashu) |
-| **Description** | Listens for Nostr mentions, gates the LLM behind a small Cashu/Lightning admission, spends sats from its own wallet to run one tool (`fetch_url`), operator dashboard on localhost. Mock-first; live mint + kind-1 replies behind env. |
+| **Description** | Listens for Nostr mentions, gates the LLM behind a small Cashu/Lightning admission, spends sats from its own wallet (mock debit or live Cashu melt) to run one tool (`fetch_url`), operator dashboard on localhost. |
 | **Demo video** | Follow the script above: unpaid paywall → mark-paid LLM reply → `fetch https://example.com` debit. 2–3 minutes. |
 | **GitHub** | This repo (include README + `docs/DEMO.md`) |
 | **Website / demo** | Localhost URLs in the README; optional public npub if you ran live relays |
@@ -152,4 +152,4 @@ With `MOCK_MODE=false` and `NOSTR_NSEC=nsec1…`, mentions on `NOSTR_RELAYS` get
 - **Freedom Stack** — identity is an npub; transport is relays; value is Cashu (Lightning as the mint's on/off ramp); dashboard is operator-only.
 - **Machine Money** — agent **earns** admission sats to unlock LLM replies and **spends** `TOOL_SPEND_SATS` from its own wallet to fetch a URL; insufficient balance is a spoken refusal, not a silent skip.
 
-See [TRACKS.md](TRACKS.md) and [MVP.md](MVP.md).
+See [TRACKS.md](TRACKS.md), [MVP.md](MVP.md), and paste-ready Devfolio copy in [SUBMIT.md](SUBMIT.md).

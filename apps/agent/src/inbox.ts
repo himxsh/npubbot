@@ -155,19 +155,26 @@ export function createInbox(deps: InboxDeps): Inbox {
           outcome: "tool-need-url",
         };
       case "fetch_url": {
-        const spend = spendForTool({
+        const spend = await spendForTool({
           store,
           cashu,
           amountSats: env.TOOL_SPEND_SATS,
           url: intent.url,
         });
         if (!spend.ok) {
+          const insufficient = spend.detail.startsWith("insufficient");
+          if (insufficient) {
+            return {
+              reply: insufficientToolMessage({
+                balanceSats: store.getBalance(),
+                amountSats: env.TOOL_SPEND_SATS,
+              }),
+              outcome: "tool-unaffordable",
+            };
+          }
           return {
-            reply: insufficientToolMessage({
-              balanceSats: store.getBalance(),
-              amountSats: env.TOOL_SPEND_SATS,
-            }),
-            outcome: "tool-unaffordable",
+            reply: userFacingMessage("wallet"),
+            outcome: "error",
           };
         }
         let fetched;

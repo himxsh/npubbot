@@ -26,7 +26,7 @@ packages/shared — Zod env schema + status payload types
 | `apps/web` | Dashboard: events, sessions, mark-paid, mock mention, tool spends |
 | `packages/shared` | Shared TypeScript types and env schema |
 
-Tracks: **Cypherpunk** (Cashu privacy by default), **Freedom Stack** (Nostr + ecash), **Machine Money** (agent earns and spends sats). See [docs/TRACKS.md](docs/TRACKS.md), [docs/MVP.md](docs/MVP.md), and the recording script in [docs/DEMO.md](docs/DEMO.md).
+See [docs/TRACKS.md](docs/TRACKS.md), [docs/MVP.md](docs/MVP.md), the recording script in [docs/DEMO.md](docs/DEMO.md), and suggested Devfolio copy in [docs/SUBMIT.md](docs/SUBMIT.md).
 
 ## Prerequisites
 
@@ -56,7 +56,7 @@ With `MOCK_MODE=true` (the default in `.env.example`):
 2. The agent replies with a Cashu **quote**, not an LLM answer. Wallet stays at `MOCK_BALANCE_SATS` (default 210).
 3. Click **Mark invoice paid** (or `POST /dev/mark-paid` with `{ "quoteId": "…" }`).
 4. The held prompt is sent to the (mock) LLM. A full reply is logged. Wallet **credits** `PAYMENT_GATE_SATS` (default 21) → 231.
-5. Send a tool request from the **same sender** (`fetch https://example.com`). The agent **debits** `TOOL_SPEND_SATS` (default 10) → 221, GETs the URL, and the reply includes the page text (mock LLM echoes it). Dashboard **Tool spends** lists the debit.
+5. Send a tool request from the **same sender** (`fetch https://example.com`). The agent **debits** `TOOL_SPEND_SATS` (default 10) → 221, GETs the URL, and the reply includes the page text (mock LLM echoes it). Dashboard **Tool spends** lists the debit. Live Cashu melts proofs instead of a mock debit (see below).
 
 A second unpaid mention from the same pubkey within `UNPAID_COOLDOWN_MS` (default 10s) is **throttled** (no extra paywall). Paid traffic is not throttled.
 
@@ -105,12 +105,13 @@ Live gate:
 - **Quote:** `Wallet.createMintQuoteBolt11` → bolt11 in the paywall reply
 - **Settle:** poll `checkMintQuoteBolt11` (5s) or dashboard **Check mint payment** → `mintProofsBolt11`
 - **Receive:** a `cashuA` / `cashuB` token in a mention is `wallet.receive`'d (never logged)
+- **Tool spend:** `createMeltQuoteBolt11` + `meltProofsBolt11`. `fetch_url` is a plain HTTP GET (no invoice), so the agent melts to a **mint-issued bolt11** for `TOOL_SPEND_SATS` and does **not** remint that quote. Sats leave the proof vault (plus Lightning/mint fees). Mock mode still uses an in-memory debit.
 
 Proofs stay in process memory. `/status`, logs, and the dashboard never include nsec, API keys, or proofs.
 
-**TODO(cashu-mint):** persist proofs encrypted at rest; `createMeltQuoteBolt11` / `meltProofsBolt11` when `fetch_url` has a Lightning sink (HTTP GET has no invoice). Tool spend still **debits the local balance** credited from admission/receive.
+**TODO(cashu-mint):** persist proofs encrypted at rest across restarts.
 
-If `loadMint` / quote / receive fails, senders get a mint/wallet error string and the agent keeps serving `/health`.
+If `loadMint` / quote / receive / melt fails, senders get a mint/wallet error string and the agent keeps serving `/health`.
 
 ### Scripts
 
@@ -147,7 +148,7 @@ The HTTP API **never** returns the nsec, LLM keys, or Cashu proofs. String field
 
 ## Plug-in points
 
-- `TODO(cashu-mint)` — persist proofs; melt for tool spend (`apps/agent/src/tools/spender.ts`)
+- `TODO(cashu-mint)` — persist proofs encrypted at rest (`apps/agent/src/payments/cashu.ts`)
 - `TODO(nostr-dm-encryption)` — NIP-44 / NIP-17 decrypt so DMs can enter the gate
 
 ## License
