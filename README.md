@@ -61,7 +61,7 @@ pnpm dev
 | Process | URL |
 | --- | --- |
 | Agent | http://127.0.0.1:3847/health and `/status` |
-| Dashboard | http://127.0.0.1:5173 |
+| Dashboard | http://127.0.0.1:5173 (polls the agent about every 1.5s) |
 
 `pnpm typecheck` should pass after install.
 
@@ -77,7 +77,7 @@ With `MOCK_MODE=true` (the default in `.env.example`):
 4. The held prompt is sent to the (mock) LLM. A full reply is logged. Wallet **credits** `PAYMENT_GATE_SATS` (default 21) → 231.
 5. Send a tool request from the **same sender** (`fetch https://example.com`). The agent **debits** `TOOL_SPEND_SATS` (default 10) → 221, GETs the URL, and the reply includes the page text (mock LLM echoes it). Dashboard **Tool spends** lists the debit. Live Cashu melts proofs instead of a mock debit (see [Live Cashu](#live-cashu)).
 
-A second unpaid mention from the same pubkey within `UNPAID_COOLDOWN_MS` (default 10s) is **throttled** (no extra paywall). Paid traffic is not throttled.
+A second unpaid mention from the same pubkey within `UNPAID_COOLDOWN_MS` (default 10s) is **throttled** (no extra paywall, original prompt kept). Paid traffic is not throttled. The dashboard updates in place as `/status` changes.
 
 ```bash
 curl -sS http://127.0.0.1:3847/dev/inbound \
