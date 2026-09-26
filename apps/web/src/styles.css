@@ -36,6 +36,7 @@ body {
   max-width: 1080px;
   margin: 0 auto;
   padding: 32px 24px 64px;
+  min-width: 0;
 }
 
 .mast {
@@ -87,6 +88,13 @@ h1 {
   font-size: 12px;
   letter-spacing: 0.04em;
   text-transform: uppercase;
+}
+
+.clock {
+  font-variant-numeric: tabular-nums;
+  letter-spacing: 0;
+  text-transform: none;
+  color: var(--text);
 }
 
 .live-dot {
@@ -308,6 +316,7 @@ code {
 
 table {
   width: 100%;
+  max-width: 100%;
   border-collapse: collapse;
   font-size: 13px;
   margin-top: 14px;
@@ -399,6 +408,7 @@ th {
 .hero .reply {
   margin: 12px 0 0;
   white-space: pre-wrap;
+  overflow-wrap: anywhere;
   font-family: var(--font-ui);
   font-size: 16px;
   line-height: 1.45;
@@ -513,6 +523,44 @@ button:not(:disabled):hover {
   .grid,
   .grid-2 {
     grid-template-columns: 1fr;
+  }
+
+  .card,
+  .stat,
+  .beat,
+  .mast,
+  .live-pill {
+    min-width: 0;
+    max-width: 100%;
+  }
+
+  .live-pill {
+    flex-wrap: wrap;
+  }
+
+  table,
+  thead,
+  tbody,
+  tr,
+  th,
+  td {
+    display: block;
+    width: 100%;
+  }
+
+  thead {
+    display: none;
+  }
+
+  tr {
+    padding: 8px 0;
+    border-bottom: 1px solid var(--line);
+  }
+
+  td {
+    border: 0;
+    padding: 2px 0;
+    overflow-wrap: anywhere;
   }
 
   h1 {

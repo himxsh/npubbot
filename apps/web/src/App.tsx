@@ -315,6 +315,7 @@ export function App() {
             <p className="live-pill">
               <span className={load.staleError ? "live-dot live-dot-stale" : "live-dot"} />
               <span>{load.staleError ? "retrying" : "live"}</span>
+              <span className="clock">{new Date(now).toLocaleTimeString()}</span>
               <span className="muted">
                 polled {formatAgo(new Date(load.updatedAt).toISOString(), now)}
               </span>

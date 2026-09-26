@@ -9,7 +9,7 @@ export function formatAgo(iso: string, now: number): string {
   if (Number.isNaN(delta)) {
     return "—";
   }
-  if (delta < 1500) {
+  if (delta < 1000) {
     return "just now";
   }
   const seconds = Math.floor(delta / 1000);
