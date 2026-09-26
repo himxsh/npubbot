@@ -61,51 +61,112 @@ function stripMarkup(raw: string): string {
     .trim();
 }
 
+const MAX_REDIRECTS = 3;
+
 /**
- * One paid tool: HTTP GET with timeout. Blocks loopback/private hosts.
+ * Null when the URL is a public http(s) target. Used before spending sats
+ * and again on every redirect hop.
+ */
+export function publicUrlError(url: string): string | null {
+  let parsed: URL;
+  try {
+    parsed = new URL(url);
+  } catch {
+    return "invalid URL";
+  }
+  if (parsed.protocol !== "https:" && parsed.protocol !== "http:") {
+    return "only http/https URLs are allowed";
+  }
+  if (parsed.username !== "" || parsed.password !== "") {
+    return "URLs with credentials are not allowed";
+  }
+  if (isBlockedHost(parsed.hostname)) {
+    return "refusing private or loopback host";
+  }
+  return null;
+}
+
+function isRedirect(status: number): boolean {
+  switch (status) {
+    case 301:
+    case 302:
+    case 303:
+    case 307:
+    case 308:
+      return true;
+    default:
+      return false;
+  }
+}
+
+/**
+ * One paid tool: HTTP GET with timeout. Blocks loopback/private hosts,
+ * including redirects that hop onto those hosts.
  */
 export async function fetchUrl(
   url: string,
   timeoutMs: number,
 ): Promise<FetchUrlResult> {
-  let parsed: URL;
-  try {
-    parsed = new URL(url);
-  } catch {
-    return { ok: false, url, error: "invalid URL" };
+  const initialError = publicUrlError(url);
+  if (initialError !== null) {
+    return { ok: false, url, error: initialError };
   }
 
-  if (parsed.protocol !== "https:" && parsed.protocol !== "http:") {
-    return { ok: false, url, error: "only http/https URLs are allowed" };
-  }
-  if (isBlockedHost(parsed.hostname)) {
-    return { ok: false, url, error: "refusing private or loopback host" };
-  }
+  let parsed = new URL(url);
+  const signal = AbortSignal.timeout(timeoutMs);
 
   try {
-    const response = await fetch(parsed, {
-      method: "GET",
-      redirect: "follow",
-      headers: { accept: "text/html,text/plain,application/json;q=0.9,*/*;q=0.5" },
-      signal: AbortSignal.timeout(timeoutMs),
-    });
-    const contentType = response.headers.get("content-type") ?? "unknown";
-    const raw = (await response.text()).slice(0, MAX_CHARS * 2);
-    const text = stripMarkup(raw).slice(0, MAX_CHARS);
-    if (!response.ok) {
+    for (let hop = 0; hop <= MAX_REDIRECTS; hop += 1) {
+      const response = await fetch(parsed, {
+        method: "GET",
+        redirect: "manual",
+        headers: {
+          accept: "text/html,text/plain,application/json;q=0.9,*/*;q=0.5",
+        },
+        signal,
+      });
+
+      if (isRedirect(response.status)) {
+        await response.body?.cancel().catch(() => undefined);
+        const location = response.headers.get("location");
+        if (location === null || location.trim() === "") {
+          return {
+            ok: false,
+            url: parsed.toString(),
+            error: "redirect missing location",
+          };
+        }
+        const next = new URL(location, parsed);
+        const nextError = publicUrlError(next.toString());
+        if (nextError !== null) {
+          return { ok: false, url: next.toString(), error: nextError };
+        }
+        if (hop === MAX_REDIRECTS) {
+          return { ok: false, url: next.toString(), error: "too many redirects" };
+        }
+        parsed = next;
+        continue;
+      }
+
+      const contentType = response.headers.get("content-type") ?? "unknown";
+      const raw = (await response.text()).slice(0, MAX_CHARS * 2);
+      const text = stripMarkup(raw).slice(0, MAX_CHARS);
+      if (!response.ok) {
+        return {
+          ok: false,
+          url: parsed.toString(),
+          error: `HTTP ${response.status} ${text.slice(0, 200)}`.trim(),
+        };
+      }
       return {
-        ok: false,
+        ok: true,
         url: parsed.toString(),
-        error: `HTTP ${response.status} ${text.slice(0, 200)}`.trim(),
+        status: response.status,
+        contentType,
+        text: text.length > 0 ? text : "(empty body)",
       };
     }
-    return {
-      ok: true,
-      url: parsed.toString(),
-      status: response.status,
-      contentType,
-      text: text.length > 0 ? text : "(empty body)",
-    };
+    return { ok: false, url: parsed.toString(), error: "too many redirects" };
   } catch (error) {
     if (isTimeoutError(error)) {
       return { ok: false, url: parsed.toString(), error: "timeout" };

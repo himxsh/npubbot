@@ -139,9 +139,11 @@ export class AgentStore {
 
   recordEvent(record: NostrEventSummary): void {
     this.seenEventIds.add(record.id);
+    const detail = redactSecrets(record.detail).slice(0, 1200);
     this.events.unshift({
       ...record,
       summary: redactSecrets(record.summary),
+      detail,
     });
     if (this.events.length > MAX_ROWS) {
       this.events.length = MAX_ROWS;
@@ -158,6 +160,7 @@ export class AgentStore {
 
   snapshot(): AgentStatus {
     return {
+      observedAt: new Date().toISOString(),
       startedAt: this.startedAt,
       identity: this.identity,
       wallet: {

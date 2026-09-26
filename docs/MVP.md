@@ -8,8 +8,8 @@ A Nostr user can mention the agent’s npub, pay a small Cashu amount, and recei
 
 ## Loop (what runs now)
 
-1. **Listen.** Live: kind 1 `#p` mentions. Mock: `POST /dev/inbound`. DMs logged only (`TODO(nostr-dm-encryption)`).
-2. **Gate.** Unpaid senders get a quote. User text is not sent to the LLM. Extra unpaid mentions from the same pubkey are soft-throttled (`UNPAID_COOLDOWN_MS`).
+1. **Listen.** Live: kind 1 `#p` mentions. Mock: `POST /dev/inbound`. DMs are logged only. Decrypting them is non-MVP (`TODO(nostr-dm-encryption)`).
+2. **Gate.** Unpaid senders get a quote. User text is not sent to the LLM. Extra unpaid mentions from the same pubkey inside `UNPAID_COOLDOWN_MS` are soft-throttled: no second bill, and the original held prompt stays.
 3. **Pay.** Mock: `POST /dev/mark-paid`. Live: mint bolt11 quote + poll/`receive` token.
 4. **Route.** Paid text with an http(s) URL → `fetch_url` path. Lookup/search/fetch without a URL → ask for a link (no spend). Otherwise paid chat.
 5. **Spend.** If routing to the tool: require wallet ≥ `TOOL_SPEND_SATS`. Mock: in-memory debit. Live: melt proofs to a mint-issued bolt11 (self-pay, not reminted) then GET with timeout and feed the result to the LLM.
@@ -28,4 +28,9 @@ A Nostr user can mention the agent’s npub, pay a small Cashu amount, and recei
 6. Tool spend appears on `/status` and the dashboard
 7. `GET /status` has no nsec, API keys, or Cashu proofs
 
-Demo recording: [DEMO.md](DEMO.md).
+Demo recording: [DEMO.md](DEMO.md). The dashboard polls; operator checks do not need a manual reload.
+
+## Not on the demo path
+
+- Persisting Cashu proofs across restarts (`TODO(cashu-mint)`). Mock sats and a single live process cover the demo.
+- Decrypting Nostr DMs (`TODO(nostr-dm-encryption)`). Kind-1 mentions are the paid inbox.

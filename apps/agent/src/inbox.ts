@@ -26,7 +26,7 @@ import { classifyInboundKind } from "./nostr/classify.ts";
 import { publishTextReply } from "./nostr/publish.ts";
 import type { SimplePool } from "nostr-tools/pool";
 import { routeIntent } from "./tools/intent.ts";
-import { fetchUrl, formatFetchResult } from "./tools/fetch-url.ts";
+import { fetchUrl, formatFetchResult, publicUrlError } from "./tools/fetch-url.ts";
 import {
   insufficientToolMessage,
   needUrlMessage,
@@ -116,6 +116,7 @@ export function createInbox(deps: InboxDeps): Inbox {
       direction: "out",
       from: identity.npub,
       summary: preview(input.content),
+      detail: input.content,
       createdAt: new Date(published.event.created_at * 1000).toISOString(),
       gated: input.gated,
       quoteId: input.quoteId,
@@ -155,6 +156,13 @@ export function createInbox(deps: InboxDeps): Inbox {
           outcome: "tool-need-url",
         };
       case "fetch_url": {
+        const refused = publicUrlError(intent.url);
+        if (refused !== null) {
+          return {
+            reply: `fetch_url refused that URL (${refused}). No sats were spent. Send a public http(s) link.`,
+            outcome: "error",
+          };
+        }
         const spend = await spendForTool({
           store,
           cashu,
@@ -304,13 +312,43 @@ export function createInbox(deps: InboxDeps): Inbox {
     };
   }
 
+  function syncLiveBalance(): void {
+    if (!cashu.mock) {
+      store.setBalance(cashu.proofBalanceSats());
+    }
+  }
+
   async function applyPaid(quoteId: string): Promise<MarkPaidResponse> {
+    const existing = sessions.getByQuoteId(quoteId);
+    if (!existing) {
+      throw new Error(`unknown quote ${quoteId}`);
+    }
+    if (existing.state === "expired") {
+      throw new Error("quote expired");
+    }
+    if (existing.state === "paid") {
+      const summary = sessions.summaries().find((row) => row.quoteId === quoteId);
+      if (!summary) {
+        throw new Error("session missing after mark-paid");
+      }
+      return {
+        ok: true as const,
+        quoteId,
+        reply: null,
+        session: summary,
+      };
+    }
+
     const updated = sessions.markPaid(quoteId);
     if (!updated) {
       throw new Error(`unknown quote ${quoteId}`);
     }
     store.markPaymentPaid(quoteId, updated.amountSats);
-    store.credit(updated.amountSats);
+    if (cashu.mock) {
+      store.credit(updated.amountSats);
+    } else {
+      syncLiveBalance();
+    }
 
     const pending = sessions.clearPendingPrompt(quoteId);
     let reply: string | null = null;
@@ -367,6 +405,7 @@ export function createInbox(deps: InboxDeps): Inbox {
       direction: "in",
       from: input.senderNpub,
       summary: preview(input.text),
+      detail: input.text,
       createdAt: input.createdAt,
       gated: true,
       quoteId: null,
@@ -375,7 +414,7 @@ export function createInbox(deps: InboxDeps): Inbox {
     try {
       const received = await cashu.receiveToken(token);
       store.setWalletError(null);
-      store.credit(received.amountSats);
+      syncLiveBalance();
       store.recordPayment({
         id: newId("pay"),
         quoteId: null,
@@ -472,6 +511,7 @@ export function createInbox(deps: InboxDeps): Inbox {
         direction: "in",
         from: input.senderNpub,
         summary: preview(input.text),
+        detail: input.text,
         createdAt: input.createdAt,
         gated: false,
         quoteId,
@@ -500,10 +540,6 @@ export function createInbox(deps: InboxDeps): Inbox {
       existing?.state === "pending" &&
       unpaidCooldown.shouldSkip(input.senderPubkeyHex)
     ) {
-      sessions.setPendingPrompt(existing.quoteId, {
-        eventId: input.eventId,
-        text: stripCashuTokens(input.text),
-      });
       store.recordEvent({
         id: input.eventId,
         kind: input.kind,
@@ -511,13 +547,14 @@ export function createInbox(deps: InboxDeps): Inbox {
         direction: "in",
         from: input.senderNpub,
         summary: preview(input.text),
+        detail: input.text,
         createdAt: input.createdAt,
         gated: true,
         quoteId: existing.quoteId,
       });
       logInfo(
         "inbox",
-        `unpaid cooldown: skipped extra paywall for ${input.senderNpub}`,
+        `unpaid cooldown: kept original prompt for ${input.senderNpub}`,
       );
       return {
         outcome: "throttled",
@@ -541,6 +578,7 @@ export function createInbox(deps: InboxDeps): Inbox {
         direction: "in",
         from: input.senderNpub,
         summary: preview(input.text),
+        detail: input.text,
         createdAt: input.createdAt,
         gated: true,
         quoteId: null,
@@ -561,6 +599,7 @@ export function createInbox(deps: InboxDeps): Inbox {
       direction: "in",
       from: input.senderNpub,
       summary: preview(input.text),
+      detail: input.text,
       createdAt: input.createdAt,
       gated: true,
       quoteId: paywall.quoteId,
@@ -619,7 +658,9 @@ export function createInbox(deps: InboxDeps): Inbox {
           direction: "in",
           from: senderNpub,
           summary:
-            "[encrypted DM] not decrypted — mentions only until TODO(nostr-dm-encryption)",
+            "[encrypted DM] not decrypted — mentions only (DM decryption is non-MVP)",
+          detail:
+            "[encrypted DM] not decrypted — mentions only (DM decryption is non-MVP)",
           createdAt: input.createdAt,
           gated: false,
           quoteId: null,

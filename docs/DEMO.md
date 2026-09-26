@@ -22,7 +22,9 @@ Confirm `/health` shows `mock.nostr`, `mock.cashu`, and `mock.llm` all `true`.
 
 ## Script — unpaid → pay → reply → fetch_url spend
 
-Reuse one sender (`senderNpub`) after the first inbound so the paid session sticks.
+Leave the dashboard open. It polls `/status` about every 1.5s, so the wallet, sessions, latest reply, and tool spends change on screen without a reload. The live dot and “polled … ago” line keep moving between events.
+
+Reuse one sender (`senderNpub`) after the first inbound so the paid session sticks. Preset buttons (**Unpaid question**, **Paid chat**, **fetch_url**) send as that sender.
 
 ### 1. Unpaid mention (must not call the LLM)
 
@@ -44,7 +46,7 @@ Screenshot caption 1: *Dashboard after an unpaid mention — session pending, qu
 
 Send the same sender a second mention immediately.
 
-**Expect:** `outcome` is `throttled`, `reply` is `null`. Latest prompt is held; no second paywall note.
+**Expect:** `outcome` is `throttled`, `reply` is `null`. The original prompt stays held; the extra mention does not replace it or send a second paywall.
 
 ### 3. Pay (mock mint)
 
@@ -111,7 +113,7 @@ print("secret hits", hits or "none")
 
 ## Live mint (optional, not the default demo)
 
-`testnut.cashu.space` is a public **FakeWallet** mint: invoices mark paid so you can exercise `createMintQuoteBolt11` / `mintProofsBolt11` / `receive` without real Lightning.
+`testnut.cashu.space` is a public **FakeWallet** mint: invoices flip to paid after about a second, so you can exercise `createMintQuoteBolt11` / `mintProofsBolt11` / `receive` without real Lightning. The agent polls every 5s, or use **Check mint payment** on the dashboard.
 
 ```bash
 # MOCK_MODE=false is required — mock mode never contacts the mint
@@ -125,7 +127,9 @@ Restart `pnpm agent`. Unpaid inbound returns a **bolt11** invoice. The agent pol
 
 If the mint is down, the sender gets a mint-unreachable message; the agent loop keeps running.
 
-Exact flip steps: [README](../README.md#live-cashu-mint). Remaining optional work: persist proofs across restarts (`TODO(cashu-mint)`).
+Exact flip steps: [README](../README.md#live-cashu-mint).
+
+Not on this demo path (non-MVP): persisting Cashu proofs across restarts (`TODO(cashu-mint)`), and decrypting Nostr DMs (`TODO(nostr-dm-encryption)`). Kind-1 mentions are the paid inbox. One agent process is enough for the mock demo and for a single live mint session.
 
 ## Live Nostr replies
 

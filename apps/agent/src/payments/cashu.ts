@@ -54,6 +54,15 @@ function sumProofs(proofs: Proof[]): number {
   return total;
 }
 
+function proofKey(proof: Proof): string {
+  return `${proof.id}:${proof.secret}:${proof.C}`;
+}
+
+function withoutProofs(all: Proof[], drop: Proof[]): Proof[] {
+  const dropKeys = new Set(drop.map(proofKey));
+  return all.filter((proof) => !dropKeys.has(proofKey(proof)));
+}
+
 function amountFromQuote(value: { amount?: { toNumber: () => number } }): number {
   if (value.amount === undefined) {
     return 0;
@@ -69,7 +78,12 @@ function amountFromQuote(value: { amount?: { toNumber: () => number } }): number
  * bolt11 (self-pay) and does **not** remint that quote. Proofs leave the vault.
  *
  * Proofs stay in process memory and are never logged or returned on /status.
- * TODO(cashu-mint): persist proofs encrypted at rest across restarts.
+ * Persisting them across restarts is non-MVP (`TODO(cashu-mint)`): the demo
+ * path is one process, mock or live.
+ *
+ * Tool spend melts to a fresh mint-issued bolt11 and does not remint it.
+ * Proofs are selected before that invoice is created so a FakeWallet mint
+ * (which marks its own invoices paid after about a second) does not win the race.
  */
 export async function createCashuHandle(
   mintUrl: string | undefined,
@@ -103,11 +117,63 @@ export async function createCashuHandle(
   const wallet = new Wallet(mintUrl);
   const vault: Proof[] = [];
   let ready = false;
+  const mintedQuoteIds = new Set<string>();
+  const settleInflight = new Map<string, Promise<QuoteSettleResult>>();
 
   function replaceVault(next: Proof[]): void {
     vault.length = 0;
     vault.push(...next);
   }
+
+  async function settleQuoteOnce(quoteId: string): Promise<QuoteSettleResult> {
+    try {
+      await ensureReady();
+      const checked = await wallet.checkMintQuoteBolt11(quoteId);
+      switch (checked.state) {
+        case MintQuoteState.UNPAID:
+          return { kind: "unpaid" };
+        case MintQuoteState.ISSUED: {
+          const amountSats = amountFromQuote(checked);
+          logInfo("cashu", `mint quote ${quoteId} already issued`);
+          return { kind: "issued", amountSats };
+        }
+        case MintQuoteState.PAID: {
+          if (mintedQuoteIds.has(quoteId)) {
+            const amountSats = amountFromQuote(checked);
+            logInfo("cashu", `mint quote ${quoteId} already minted in this process`);
+            return { kind: "issued", amountSats };
+          }
+          const amountSats = amountFromQuote(checked);
+          const proofs = await wallet.mintProofsBolt11(amountSats, checked.quote);
+          mintedQuoteIds.add(quoteId);
+          vault.push(...proofs);
+          const mintedSats = sumProofs(proofs);
+          logInfo(
+            "cashu",
+            `minted ${mintedSats} sat (${proofs.length} proofs) — proofs not logged`,
+          );
+          return { kind: "paid", amountSats: mintedSats };
+        }
+        default:
+          return assertNever(checked.state);
+      }
+    } catch (error) {
+      handle.lastError = "mint settle failed";
+      logError("cashu", error);
+      return { kind: "error", message: "mint settle failed" };
+    }
+  }
+
+  async function mintInvoice(amountSats: number, description: string): Promise<string> {
+    try {
+      const sink = await wallet.createMintQuoteBolt11(amountSats, description);
+      return sink.request;
+    } catch {
+      const sink = await wallet.createMintQuoteBolt11(amountSats);
+      return sink.request;
+    }
+  }
+
   const handle: CashuHandle = {
     mock: false,
     mintUrl,
@@ -150,35 +216,15 @@ export async function createCashuHandle(
       }
     },
     async settleQuote(quoteId) {
-      try {
-        await ensureReady();
-        const checked = await wallet.checkMintQuoteBolt11(quoteId);
-        switch (checked.state) {
-          case MintQuoteState.UNPAID:
-            return { kind: "unpaid" };
-          case MintQuoteState.ISSUED: {
-            const amountSats = amountFromQuote(checked);
-            logInfo("cashu", `mint quote ${quoteId} already issued`);
-            return { kind: "issued", amountSats };
-          }
-          case MintQuoteState.PAID: {
-            const amountSats = amountFromQuote(checked);
-            const proofs = await wallet.mintProofsBolt11(amountSats, checked.quote);
-            vault.push(...proofs);
-            logInfo(
-              "cashu",
-              `minted ${amountSats} sat (${proofs.length} proofs) — proofs not logged`,
-            );
-            return { kind: "paid", amountSats };
-          }
-          default:
-            return assertNever(checked.state);
-        }
-      } catch (error) {
-        handle.lastError = "mint settle failed";
-        logError("cashu", error);
-        return { kind: "error", message: "mint settle failed" };
+      const existing = settleInflight.get(quoteId);
+      if (existing) {
+        return existing;
       }
+      const task = settleQuoteOnce(quoteId).finally(() => {
+        settleInflight.delete(quoteId);
+      });
+      settleInflight.set(quoteId, task);
+      return task;
     },
     async receiveToken(token) {
       await ensureReady();
@@ -217,58 +263,74 @@ export async function createCashuHandle(
           };
         }
 
-        let sinkRequest: string;
-        try {
-          const sink = await wallet.createMintQuoteBolt11(
-            amountSats,
-            "NpubBot fetch_url fee",
-          );
-          sinkRequest = sink.request;
-        } catch {
-          const sink = await wallet.createMintQuoteBolt11(amountSats);
-          sinkRequest = sink.request;
-        }
-
-        const meltQuote = await wallet.createMeltQuoteBolt11(sinkRequest);
-        const need = meltQuote.amount.add(meltQuote.fee_reserve);
-        const needSats = need.toNumber();
-        if (held < needSats) {
-          return {
-            ok: false,
-            reason: "insufficient",
-            message: `insufficient proofs for melt+fee (${held} sat < ${needSats} sat)`,
-          };
-        }
-
-        const { keep, send } = await wallet.send(need, vault, {
-          includeFees: true,
-        });
-        replaceVault([...keep, ...send]);
-
-        const melted = await wallet.meltProofsBolt11(meltQuote, send);
-        switch (melted.quote.state) {
-          case MeltQuoteState.UNPAID:
-            handle.lastError = "melt unpaid";
-            logWarn("cashu", "melt quote still unpaid — proofs kept");
+        let active = [...vault];
+        const preselect = wallet.selectProofsToSend(active, amountSats, false);
+        if (sumProofs(preselect.send) < amountSats) {
+          const split = await wallet.send(amountSats, active, { includeFees: true });
+          if (sumProofs(split.send) < amountSats) {
             return {
               ok: false,
               reason: "wallet",
-              message: "melt unpaid",
+              message: "could not split proofs for melt",
             };
-          case MeltQuoteState.PENDING:
-          case MeltQuoteState.PAID: {
-            replaceVault([...keep, ...melted.change]);
-            const remainingSats = sumProofs(vault);
-            const feeSats = meltQuote.fee_reserve.toNumber();
-            logInfo(
-              "cashu",
-              `melted ${amountSats} sat (+${feeSats} sat fee) for fetch_url self-pay; remaining ${remainingSats} sat — proofs not logged`,
-            );
-            handle.lastError = null;
-            return { ok: true, amountSats, feeSats, remainingSats };
           }
-          default:
-            return assertNever(melted.quote.state);
+          active = [...split.keep, ...split.send];
+          replaceVault(active);
+        }
+
+        const sinkRequest = await mintInvoice(amountSats, "NpubBot fetch_url fee");
+        const meltQuote = await wallet.createMeltQuoteBolt11(sinkRequest);
+        const needSats = meltQuote.amount.add(meltQuote.fee_reserve).toNumber();
+        if (sumProofs(active) < needSats) {
+          return {
+            ok: false,
+            reason: "insufficient",
+            message: `insufficient proofs for melt+fee (${sumProofs(active)} sat < ${needSats} sat)`,
+          };
+        }
+
+        const picked = wallet.selectProofsToSend(active, needSats, false);
+        const send = picked.send;
+        if (sumProofs(send) < needSats) {
+          return {
+            ok: false,
+            reason: "wallet",
+            message: "could not select proofs to melt",
+          };
+        }
+        const keep = withoutProofs(active, send);
+        replaceVault(keep);
+
+        try {
+          const melted = await wallet.meltProofsBolt11(meltQuote, send);
+          switch (melted.quote.state) {
+            case MeltQuoteState.UNPAID:
+              replaceVault([...keep, ...send]);
+              handle.lastError = "melt unpaid";
+              logWarn("cashu", "melt quote still unpaid — proofs kept");
+              return {
+                ok: false,
+                reason: "wallet",
+                message: "melt unpaid",
+              };
+            case MeltQuoteState.PENDING:
+            case MeltQuoteState.PAID: {
+              replaceVault([...keep, ...melted.change]);
+              const remainingSats = sumProofs(vault);
+              const feeSats = meltQuote.fee_reserve.toNumber();
+              logInfo(
+                "cashu",
+                `melted ${amountSats} sat (+${feeSats} sat fee) for fetch_url self-pay; remaining ${remainingSats} sat — proofs not logged`,
+              );
+              handle.lastError = null;
+              return { ok: true, amountSats, feeSats, remainingSats };
+            }
+            default:
+              return assertNever(melted.quote.state);
+          }
+        } catch (meltError) {
+          replaceVault([...keep, ...send]);
+          throw meltError;
         }
       } catch (error) {
         handle.lastError = "melt failed";

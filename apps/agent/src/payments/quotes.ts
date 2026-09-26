@@ -26,7 +26,7 @@ export function paywallMessage(input: {
     );
   } else {
     lines.push(
-      "Live mint: pay the Lightning invoice. The agent notices payment automatically. You can also send a Cashu token (cashuA/cashuB) in a mention.",
+      "Live mint: pay the Lightning invoice. The agent notices payment automatically. You can also paste a Cashu token in a mention.",
     );
   }
   return lines.join("\n");

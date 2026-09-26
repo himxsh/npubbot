@@ -84,6 +84,7 @@ export async function spendForTool(options: {
     switch (melted.reason) {
       case "insufficient":
         store.setWalletError(null);
+        store.setBalance(cashu.proofBalanceSats());
         return recordSpend(store, {
           url,
           amountSats,

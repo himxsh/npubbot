@@ -52,6 +52,7 @@ export const nostrEventSummarySchema = z.object({
   direction: nostrEventDirectionSchema,
   from: z.string(),
   summary: z.string(),
+  detail: z.string(),
   createdAt: z.string(),
   gated: z.boolean(),
   quoteId: z.string().nullable(),
@@ -118,6 +119,7 @@ export const healthResponseSchema = z.object({
 export type HealthResponse = z.infer<typeof healthResponseSchema>;
 
 export const agentStatusSchema = z.object({
+  observedAt: z.string(),
   startedAt: z.string(),
   identity: z.object({
     npub: z.string(),
