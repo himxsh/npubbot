@@ -25,7 +25,8 @@ An unpaid mention gets a quote, not an LLM reply. After payment (dashboard mark-
 - `@cashu/cashu-ts` (mint quote, receive, melt)
 - OpenAI-compatible LLM client (mock if no key)
 - Vite + React operator dashboard
-- Loopback HTTP: `/health`, `/status`, `/dev/inbound`, `/dev/mark-paid`
+- Loopback HTTP: `/health`, `/ready`, `/status`, `/dev/inbound`, `/dev/mark-paid`
+- Strict `LIVE_MODE`: refuses to boot unless Nostr + Cashu + LLM are configured and reachable; `/health` reports per-subsystem live/mock honestly
 
 ## Track mapping
 

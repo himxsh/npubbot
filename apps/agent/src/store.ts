@@ -6,6 +6,7 @@ import {
   type NostrEventSummary,
   type PaymentRecord,
   type PaymentState,
+  type RuntimeReport,
   type SessionSummary,
   type ToolSpendRecord,
 } from "@npubbot/shared";
@@ -47,6 +48,7 @@ export class AgentStore {
   private inbox: InboxStatus;
   private walletError: string | null = null;
   private sessionsView: () => SessionSummary[] = () => [];
+  private runtimeView: (() => RuntimeReport) | null = null;
 
   constructor(
     private readonly identity: AgentIdentityView,
@@ -67,6 +69,14 @@ export class AgentStore {
 
   setSessionView(view: () => SessionSummary[]): void {
     this.sessionsView = view;
+  }
+
+  setRuntimeView(view: () => RuntimeReport): void {
+    this.runtimeView = view;
+  }
+
+  getWalletError(): string | null {
+    return this.walletError;
   }
 
   setInbox(patch: Partial<InboxStatus>): void {
@@ -157,8 +167,12 @@ export class AgentStore {
   }
 
   snapshot(): AgentStatus {
+    if (this.runtimeView === null) {
+      throw new Error("runtime view not wired");
+    }
     return {
       startedAt: this.startedAt,
+      runtime: this.runtimeView(),
       identity: this.identity,
       wallet: {
         balanceSats: this.balanceSats,

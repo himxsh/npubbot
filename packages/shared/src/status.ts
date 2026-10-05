@@ -100,9 +100,42 @@ export const inboxStatusSchema = z.object({
 
 export type InboxStatus = z.infer<typeof inboxStatusSchema>;
 
+export const subsystemReportSchema = z.object({
+  /** "live" talks to real relays / mint / LLM; "mock" is in-process only. */
+  mode: z.enum(["live", "mock"]),
+  /** Live: reachable right now. Mock: always true. */
+  ready: z.boolean(),
+  /** Why it is mocked, or what it is connected to. Never contains secrets. */
+  detail: z.string(),
+  lastError: z.string().nullable(),
+});
+
+export type SubsystemReport = z.infer<typeof subsystemReportSchema>;
+
+export const runtimeReportSchema = z.object({
+  /** mock = all mocked, live = all live, partial = mixed. */
+  mode: z.enum(["mock", "partial", "live"]),
+  /** LIVE_MODE=true: anything short of all-live + ready is "not ready". */
+  liveRequired: z.boolean(),
+  nodeEnv: z.enum(["development", "test", "production"]),
+  /** All subsystems ready, and all live when liveRequired. */
+  ready: z.boolean(),
+  subsystems: z.object({
+    nostr: subsystemReportSchema,
+    cashu: subsystemReportSchema,
+    llm: subsystemReportSchema,
+  }),
+  warnings: z.array(z.string()),
+});
+
+export type RuntimeReport = z.infer<typeof runtimeReportSchema>;
+
 export const healthResponseSchema = z.object({
+  /** Process is up and serving HTTP. Use `ready` / GET /ready for live readiness. */
   ok: z.literal(true),
   service: z.literal("npubbot-agent"),
+  ready: z.boolean(),
+  runtime: runtimeReportSchema,
   mock: z.object({
     nostr: z.boolean(),
     cashu: z.boolean(),
@@ -119,6 +152,7 @@ export type HealthResponse = z.infer<typeof healthResponseSchema>;
 
 export const agentStatusSchema = z.object({
   startedAt: z.string(),
+  runtime: runtimeReportSchema,
   identity: z.object({
     npub: z.string(),
     source: z.enum(["env", "ephemeral-mock"]),

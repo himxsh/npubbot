@@ -181,7 +181,16 @@ export function App() {
             <Flag on={load.status.mock.nostr} label="nostr" />
             <Flag on={load.status.mock.cashu} label="cashu" />
             <Flag on={load.status.mock.llm} label="llm" />
-            <span className="flag flag-ok">health ok</span>
+            <span
+              className={
+                load.health.ready ? "flag flag-ok" : "flag flag-mock"
+              }
+              title={load.health.runtime.warnings.join("\n")}
+            >
+              {load.health.runtime.mode}
+              {load.health.runtime.liveRequired ? " (strict)" : ""} ·{" "}
+              {load.health.ready ? "ready" : "NOT ready"}
+            </span>
             <span className="flag">
               relays {load.status.inbox.connected.length}/
               {load.status.inbox.relays.length}
@@ -189,6 +198,11 @@ export function App() {
             </span>
           </section>
 
+          {load.health.runtime.warnings.length > 0 ? (
+            <p className="banner banner-warn">
+              Config: {load.health.runtime.warnings.join(" · ")}
+            </p>
+          ) : null}
           {load.status.inbox.lastError ? (
             <p className="banner banner-warn">
               Relays: {load.status.inbox.lastError}
