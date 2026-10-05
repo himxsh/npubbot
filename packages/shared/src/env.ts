@@ -85,7 +85,7 @@ export const agentEnvSchema = z.object({
   UNPAID_COOLDOWN_MS: z.coerce.number().int().nonnegative().default(10_000),
   SESSION_STORE_PATH: z.string().default("data/sessions.json"),
   LLM_API_KEY: optionalString,
-  LLM_BASE_URL: z.string().default("https://api.openai.com/v1"),
+  LLM_BASE_URL: z.string().default("https://generativelanguage.googleapis.com/v1beta/openai/"),
   LLM_MODEL: z.string().default("mock-npubbot"),
   LLM_TIMEOUT_MS: z.coerce.number().int().positive().default(30_000),
 });

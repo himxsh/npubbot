@@ -23,7 +23,7 @@ An unpaid mention gets a quote, not an LLM reply. After payment (dashboard mark-
 - TypeScript / Node.js 22, pnpm workspaces
 - `nostr-tools` (SimplePool, kind-1 mentions and replies)
 - `@cashu/cashu-ts` (mint quote, receive, melt)
-- OpenAI-compatible LLM client (mock if no key)
+- Gemini via OpenAI-compatible LLM client (mock if no key)
 - Vite + React operator dashboard
 - Loopback HTTP: `/health`, `/ready`, `/status`, `/dev/inbound`, `/dev/mark-paid`
 - Strict `LIVE_MODE`: refuses to boot unless Nostr + Cashu + LLM are configured and reachable; `/health` reports per-subsystem live/mock honestly

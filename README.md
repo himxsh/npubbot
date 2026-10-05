@@ -7,7 +7,7 @@ NpubBot is a Nostr-native AI agent that gates full LLM replies behind a small Ca
 Talk to the bot on Nostr. Value is **Cashu** (ecash), not a custodial chat account:
 
 1. An unpaid mention gets a **quote**, not an LLM answer. The prompt is held.
-2. After payment settles, the held prompt is sent to an OpenAI-compatible LLM and a reply is published.
+2. After payment settles, the held prompt is sent to Gemini (OpenAI-compatible API) and a reply is published.
 3. If the paid sender asks to fetch a URL, the **agent** spends `TOOL_SPEND_SATS` from its wallet, GETs the page, and folds the result into the reply.
 
 Default configuration is **mock mode**: no relay sockets, no mint, no LLM key. Going live is one explicit flip (`MOCK_MODE=false` + `LIVE_MODE=true`). The agent then **refuses to start** unless Nostr, Cashu, and the LLM are all configured and reachable. See [docs/LIVE.md](docs/LIVE.md).
@@ -173,7 +173,7 @@ Copy [`.env.example`](.env.example). **Do not put real nsecs or API keys in git.
 | `SESSION_TTL_SECONDS` | Paid session lifetime |
 | `QUOTE_TTL_SECONDS` | Unpaid quote lifetime |
 | `SESSION_STORE_PATH` | JSON file for sessions (default `data/sessions.json` under `apps/agent`) |
-| `LLM_API_KEY` / `LLM_BASE_URL` / `LLM_MODEL` | OpenAI-compatible client; mock if no key. With a key, `LLM_MODEL` must be a real model id |
+| `LLM_API_KEY` / `LLM_BASE_URL` / `LLM_MODEL` | Gemini OpenAI-compatible client (default base `https://generativelanguage.googleapis.com/v1beta/openai/`); mock if no key. With a key, `LLM_MODEL` must be a real Gemini id (e.g. `gemini-2.0-flash`) |
 | `LLM_TIMEOUT_MS` | LLM request timeout (default 30000) |
 | `VITE_AGENT_BASE_URL` | Dashboard fetch base (`/agent` via Vite proxy) |
 

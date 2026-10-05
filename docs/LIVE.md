@@ -14,9 +14,9 @@ Dev stays on `MOCK_MODE=true`. Production is one explicit flip: `MOCK_MODE=false
 | --- | --- | --- |
 | `NOSTR_NSEC` | Agent private key, `nsec1…` (bech32, not hex) | A dedicated bot key (e.g. generated in a Nostr client or `nak key generate`). Don't reuse your personal nsec. |
 | `CASHU_MINT_URL` | `https://` mint | `https://testnut.cashu.space` for a demo (FakeWallet: invoices auto-pay, sats not real), or a mainnet mint you trust. |
-| `LLM_API_KEY` | OpenAI-compatible API key | Your LLM provider |
-| `LLM_MODEL` | Real model id for that provider | Provider docs. `mock-npubbot` is rejected. |
-| `LLM_BASE_URL` | Only if not OpenAI | e.g. an OpenRouter / Groq / local OpenAI-compatible base URL ending in `/v1` |
+| `LLM_API_KEY` | Gemini API key (OpenAI-compatible client) | https://aistudio.google.com/apikey |
+| `LLM_MODEL` | Real Gemini model id | e.g. `gemini-2.0-flash`. `mock-npubbot` is rejected. |
+| `LLM_BASE_URL` | Gemini OpenAI-compatible base (default) | Default `https://generativelanguage.googleapis.com/v1beta/openai/`; other OpenAI-compatible providers work too |
 
 Optional: `NOSTR_RELAYS` (comma-separated `wss://`), `PAYMENT_GATE_SATS`, `TOOL_SPEND_SATS`.
 
@@ -65,7 +65,7 @@ Outside `LIVE_MODE`, malformed values (bad nsec, `ftp://` mint, key set with `LL
   "subsystems": {
     "nostr": { "mode": "live", "ready": true, "detail": "2/2 relays connected", "lastError": null },
     "cashu": { "mode": "live", "ready": true, "detail": "mint https://… loaded; 0 sat in proofs", "lastError": null },
-    "llm":   { "mode": "live", "ready": true, "detail": "model … at api.openai.com", "lastError": null }
+    "llm":   { "mode": "live", "ready": true, "detail": "model … at generativelanguage.googleapis.com", "lastError": null }
   },
   "warnings": []
 }
