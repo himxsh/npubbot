@@ -43,3 +43,6 @@ Thumbs.db
 apps/agent/data/
 *.json.tmp
 
+
+# Vercel
+.vercel/
