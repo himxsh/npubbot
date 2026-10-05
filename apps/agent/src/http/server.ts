@@ -5,6 +5,7 @@ import {
   type AgentStatus,
   type HealthResponse,
   type MockFlags,
+  type RuntimeReport,
 } from "@npubbot/shared";
 import { ZodError } from "zod";
 import type { AgentStore } from "../store.ts";
@@ -20,6 +21,7 @@ export type HttpServerOptions = {
   mock: MockFlags;
   inbox: Inbox;
   llm: LlmClient;
+  runtime: () => RuntimeReport;
 };
 
 function setCors(res: ServerResponse): void {
@@ -63,7 +65,7 @@ export async function startHttpServer(options: HttpServerOptions): Promise<{
   close: () => Promise<void>;
   url: string;
 }> {
-  const { host, port, store, mock, inbox, llm } = options;
+  const { host, port, store, mock, inbox, llm, runtime } = options;
   const devEnabled = isLoopbackHost(host);
 
   const server = createServer((req, res) => {
@@ -90,6 +92,7 @@ export async function startHttpServer(options: HttpServerOptions): Promise<{
           service: "npubbot-agent",
           endpoints: [
             "/health",
+            "/ready",
             "/status",
             "/dev/inbound",
             "/dev/mark-paid",
@@ -99,14 +102,29 @@ export async function startHttpServer(options: HttpServerOptions): Promise<{
       }
 
       if (method === "GET" && path === "/health") {
+        const report = runtime();
         const body: HealthResponse = {
           ok: true,
           service: "npubbot-agent",
+          ready: report.ready,
+          runtime: report,
           mock,
           inbox: store.getInbox(),
           llm: { mock: llm.mock, model: llm.model },
         };
         sendJson(res, 200, body);
+        return;
+      }
+
+      if (method === "GET" && path === "/ready") {
+        // 200 only when every subsystem is ready (and all live under LIVE_MODE).
+        const report = runtime();
+        sendJson(res, report.ready ? 200 : 503, {
+          ready: report.ready,
+          mode: report.mode,
+          liveRequired: report.liveRequired,
+          subsystems: report.subsystems,
+        });
         return;
       }
 

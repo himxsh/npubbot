@@ -17,7 +17,13 @@ export function resolveIdentity(
   mockNostr: boolean,
 ): AgentIdentity {
   if (nsec !== undefined) {
-    const decoded = nip19.decode(nsec);
+    let decoded: ReturnType<typeof nip19.decode>;
+    try {
+      decoded = nip19.decode(nsec);
+    } catch {
+      // Never include the input in the message — it is the private key.
+      throw new Error("NOSTR_NSEC is not a valid bech32 nsec1… key");
+    }
     if (decoded.type !== "nsec") {
       throw new Error(
         `NOSTR_NSEC must decode as nsec, got ${decoded.type}`,

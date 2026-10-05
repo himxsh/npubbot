@@ -7,10 +7,10 @@ NpubBot is a Nostr-native AI agent that gates full LLM replies behind a small Ca
 Talk to the bot on Nostr. Value is **Cashu** (ecash), not a custodial chat account:
 
 1. An unpaid mention gets a **quote**, not an LLM answer. The prompt is held.
-2. After payment settles, the held prompt is sent to an OpenAI-compatible LLM and a reply is published.
+2. After payment settles, the held prompt is sent to Gemini (OpenAI-compatible API) and a reply is published.
 3. If the paid sender asks to fetch a URL, the **agent** spends `TOOL_SPEND_SATS` from its wallet, GETs the page, and folds the result into the reply.
 
-Default configuration is **mock mode**: no relay sockets, no mint, no LLM key. Live Nostr and live Cashu are opt-in via environment variables.
+Default configuration is **mock mode**: no relay sockets, no mint, no LLM key. Going live is one explicit flip (`MOCK_MODE=false` + `LIVE_MODE=true`). The agent then **refuses to start** unless Nostr, Cashu, and the LLM are all configured and reachable. See [docs/LIVE.md](docs/LIVE.md).
 
 The inbox loop turns relay, mint/wallet, LLM, tool, and balance failures into **user-facing replies**. It logs and continues; it does not take down the process.
 
@@ -22,7 +22,7 @@ Diagram source: [docs/architecture.excalidraw](docs/architecture.excalidraw) (op
 
 | Package | Role |
 | --- | --- |
-| `apps/agent` | Inbox, payment gate, LLM, `fetch_url` spend, loopback HTTP (`/health`, `/status`, `/dev/*`) |
+| `apps/agent` | Inbox, payment gate, LLM, `fetch_url` spend, loopback HTTP (`/health`, `/ready`, `/status`, `/dev/*`) |
 | `apps/web` | Dashboard: events, sessions, mark-paid / check mint, mock mention, tool spends |
 | `packages/shared` | Shared TypeScript types and Zod env schema |
 
@@ -60,7 +60,7 @@ pnpm dev
 
 | Process | URL |
 | --- | --- |
-| Agent | http://127.0.0.1:3847/health and `/status` |
+| Agent | http://127.0.0.1:3847/health, `/ready`, and `/status` |
 | Dashboard | http://127.0.0.1:5173 (polls the agent about every 1.5s) |
 
 `pnpm typecheck` should pass after install.
@@ -92,6 +92,17 @@ curl -sS http://127.0.0.1:3847/dev/inbound \
   -H 'content-type: application/json' \
   -d '{"text":"fetch https://example.com","senderNpub":"SENDER_NPUB"}'
 ```
+
+## Going live
+
+```bash
+cp .env.live.example .env   # fill NOSTR_NSEC, CASHU_MINT_URL, LLM_API_KEY, LLM_MODEL
+pnpm live:check             # offline validation, lists anything missing
+pnpm agent                  # strict LIVE_MODE: refuses to start unless all three are live + reachable
+curl -s http://127.0.0.1:3847/ready   # 200 only when every subsystem is live and ready
+```
+
+`/health` and `/status` carry `runtime.mode` (`mock` / `partial` / `live`) plus `runtime.subsystems.{nostr,cashu,llm}`. Each entry has `mode`, `ready`, `detail` (why it is mocked, or what it is connected to), and `lastError`. Full checklist: [docs/LIVE.md](docs/LIVE.md).
 
 ## Live Nostr
 
@@ -137,6 +148,7 @@ If `loadMint` / quote / receive / melt fails, senders get a mint/wallet error st
 | `pnpm web` | Dashboard only |
 | `pnpm typecheck` | Typecheck all workspaces |
 | `pnpm build` | Typecheck agent/shared and production-build the dashboard |
+| `pnpm live:check` | Validate `.env` for live/mock without contacting relays, mint, or LLM |
 
 ## Environment
 
@@ -145,6 +157,9 @@ Copy [`.env.example`](.env.example). **Do not put real nsecs or API keys in git.
 | Variable | Purpose |
 | --- | --- |
 | `MOCK_MODE` | `true` (default): mock inbox + mock mint + mock LLM |
+| `LIVE_MODE` | `true` (needs `MOCK_MODE=false`): strict live, so the agent refuses to start unless nostr + cashu + llm are configured and reachable |
+| `LIVE_STARTUP_PROBES` | Boot probes for live subsystems: mint `loadMint`, LLM `/models`, relay connect. Default `true` |
+| `LIVE_RELAY_CONNECT_TIMEOUT_MS` | How long `LIVE_MODE` waits for the first relay (default 15000) |
 | `NODE_ENV` | `development` (default), `test`, or `production` |
 | `AGENT_HTTP_HOST` / `AGENT_HTTP_PORT` | Loopback status server (defaults `127.0.0.1:3847`) |
 | `NOSTR_RELAYS` | Relays used when Nostr is live |
@@ -158,10 +173,11 @@ Copy [`.env.example`](.env.example). **Do not put real nsecs or API keys in git.
 | `SESSION_TTL_SECONDS` | Paid session lifetime |
 | `QUOTE_TTL_SECONDS` | Unpaid quote lifetime |
 | `SESSION_STORE_PATH` | JSON file for sessions (default `data/sessions.json` under `apps/agent`) |
-| `LLM_API_KEY` / `LLM_BASE_URL` / `LLM_MODEL` | OpenAI-compatible client; mock if no key |
+| `LLM_API_KEY` / `LLM_BASE_URL` / `LLM_MODEL` | Gemini OpenAI-compatible client (default base `https://generativelanguage.googleapis.com/v1beta/openai/`); mock if no key. With a key, `LLM_MODEL` must be a real Gemini id (e.g. `gemini-2.0-flash`) |
+| `LLM_TIMEOUT_MS` | LLM request timeout (default 30000) |
 | `VITE_AGENT_BASE_URL` | Dashboard fetch base (`/agent` via Vite proxy) |
 
-While `MOCK_MODE=true`, Nostr, Cashu, and the LLM stay mocked even if URLs or keys are set. With `MOCK_MODE=false`, each subsystem is live only when its credential/URL is present (`NOSTR_NSEC`, `CASHU_MINT_URL`, `LLM_API_KEY`).
+While `MOCK_MODE=true`, Nostr, Cashu, and the LLM stay mocked even if URLs or keys are set. With `MOCK_MODE=false`, each subsystem is live only when its credential/URL is present (`NOSTR_NSEC`, `CASHU_MINT_URL`, `LLM_API_KEY`). Anything left mocked is logged as a warning and reported on `/health`. Add `LIVE_MODE=true` to make a missing or unreachable subsystem fatal at startup. Malformed values (a non-`nsec1` key, a non-http(s) mint, or a key with `LLM_MODEL=mock-npubbot`) are always fatal once `MOCK_MODE=false`.
 
 ## Security notes
 
@@ -180,6 +196,7 @@ While `MOCK_MODE=true`, Nostr, Cashu, and the LLM stay mocked even if URLs or ke
 | Doc | Contents |
 | --- | --- |
 | [docs/TRACKS.md](docs/TRACKS.md) | Product intent (Cashu privacy, Nostr + ecash, agent earn/spend) |
+| [docs/LIVE.md](docs/LIVE.md) | Production/live flip, required secrets, fail-fast checks, `/ready` |
 | [docs/MVP.md](docs/MVP.md) | End-to-end loop and operator checks |
 | [docs/DEMO.md](docs/DEMO.md) | Mock walkthrough and recording script |
 | [docs/SUBMIT.md](docs/SUBMIT.md) | Short project copy |

@@ -18,7 +18,9 @@ pnpm dev
 | Agent status | http://127.0.0.1:3847/status |
 | Dashboard | http://127.0.0.1:5173 |
 
-Confirm `/health` shows `mock.nostr`, `mock.cashu`, and `mock.llm` all `true`.
+Confirm `/health` shows `mock.nostr`, `mock.cashu`, and `mock.llm` all `true` (and `runtime.mode` is `"mock"`).
+
+For the live recording (real relays + mint + LLM), follow [LIVE.md](LIVE.md): `cp .env.live.example .env`, fill secrets, `pnpm live:check`, `pnpm agent`, then check that `/ready` returns 200 with `runtime.mode: "live"`.
 
 ## Script — unpaid → pay → reply → fetch_url spend
 

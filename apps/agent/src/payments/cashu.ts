@@ -34,6 +34,10 @@ export type CashuHandle = {
   receiveToken: (token: string) => Promise<CashuReceiveResult>;
   meltForTool: (amountSats: number) => Promise<MeltForToolResult>;
   proofBalanceSats: () => number;
+  /** Live: mint keys loaded (loadMint succeeded). Mock: always true. */
+  isReady: () => boolean;
+  /** Live: retry loadMint now. Resolves true when the mint is reachable. */
+  ensureReady: () => Promise<boolean>;
 };
 
 function createMockQuote(amountSats: number): AdmissionQuote {
@@ -111,6 +115,8 @@ export async function createCashuHandle(
         throw new AgentFaultError("wallet", "mock wallet does not melt");
       },
       proofBalanceSats: () => 0,
+      isReady: () => true,
+      ensureReady: async () => true,
     };
   }
 
@@ -339,6 +345,15 @@ export async function createCashuHandle(
       }
     },
     proofBalanceSats: () => sumProofs(vault),
+    isReady: () => ready,
+    ensureReady: async () => {
+      try {
+        await ensureReady();
+        return true;
+      } catch {
+        return false;
+      }
+    },
   };
 
   async function ensureReady(): Promise<void> {
