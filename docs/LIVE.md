@@ -18,7 +18,7 @@ Dev stays on `MOCK_MODE=true`. Production is one explicit flip: `MOCK_MODE=false
 | `LLM_MODEL` | Real Gemini model id | e.g. `gemini-2.0-flash`. `mock-npubbot` is rejected. |
 | `LLM_BASE_URL` | Gemini OpenAI-compatible base (default) | Default `https://generativelanguage.googleapis.com/v1beta/openai/`; other OpenAI-compatible providers work too |
 
-Optional: `NOSTR_RELAYS` (comma-separated `wss://`), `PAYMENT_GATE_SATS`, `TOOL_SPEND_SATS`.
+Optional: `NOSTR_RELAYS` (comma-separated `wss://`), `PAYMENT_GATE_SATS`, `TOOL_SPEND_SATS`, `CASHU_PROOF_KEY` (encrypted proof vault; without it proofs stay in memory).
 
 ## Steps
 
@@ -75,7 +75,7 @@ Outside `LIVE_MODE`, malformed values (bad nsec, `ftp://` mint, key set with `LL
 
 ## Caveats
 
-- Live Cashu proofs live in **process memory only**. Restarting drops them (`TODO(cashu-mint)`). Keep demo balances small.
+- Live Cashu proofs are restored from an encrypted vault when `CASHU_PROOF_KEY` is set (`CASHU_PROOF_PATH`, default `data/proofs.vault`). Without that key they stay in process memory and a restart drops them. Keep demo balances small.
 - With live Nostr, `/dev/inbound` replies are **published to real relays** (synthetic event ids). It's a loopback-only smoke test.
 - `/dev/mark-paid` never forces a live payment; it only asks the mint whether the quote is paid.
 - Keep `AGENT_HTTP_HOST=127.0.0.1`. The status API has no auth.

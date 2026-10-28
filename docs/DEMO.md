@@ -127,7 +127,7 @@ Restart `pnpm agent`. Unpaid inbound returns a **bolt11** invoice. The agent pol
 
 If the mint is down, the sender gets a mint-unreachable message; the agent loop keeps running.
 
-Exact flip steps: [README](../README.md#live-cashu-mint). Remaining optional work: persist proofs across restarts (`TODO(cashu-mint)`).
+Exact flip steps: [README](../README.md#live-cashu-mint). Set `CASHU_PROOF_KEY` so proofs survive a restart ([FEATURES.md](../FEATURES.md)).
 
 ## Live Nostr replies
 

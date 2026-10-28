@@ -9,7 +9,7 @@ NpubBot is shaped so implementation can speak to these BOSS Battle tracks. Nothi
 - Logs, `/status`, and the dashboard redact nsecs, API keys, and Cashu tokens/proofs.
 - A real mint is a single config URL (`CASHU_MINT_URL`) so the operator can pick a mint they trust. `MOCK_MODE=true` never contacts it.
 
-Live quote, receive, and tool-spend melt are wired with `@cashu/cashu-ts` when `MOCK_MODE=false` and `CASHU_MINT_URL` is set. **TODO(cashu-mint):** encrypted proof persistence across restarts.
+Live quote, receive, and tool-spend melt are wired with `@cashu/cashu-ts` when `MOCK_MODE=false` and `CASHU_MINT_URL` is set. With `CASHU_PROOF_KEY` set, proofs are stored AES-256-GCM encrypted and restored on boot. Mock mode never touches that file.
 
 ## Freedom Stack — Nostr + ecash
 

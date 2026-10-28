@@ -131,11 +131,9 @@ Live gate:
 - **Quote:** `Wallet.createMintQuoteBolt11` → bolt11 in the paywall reply
 - **Settle:** poll `checkMintQuoteBolt11` (5s) or dashboard **Check mint payment** → `mintProofsBolt11`
 - **Receive:** a `cashuA` / `cashuB` token in a mention is `wallet.receive`'d (never logged)
-- **Tool spend:** `createMeltQuoteBolt11` + `meltProofsBolt11`. `fetch_url` is a plain HTTP GET (no invoice), so the agent melts to a **mint-issued bolt11** for `TOOL_SPEND_SATS` and does **not** remint that quote. Sats leave the proof vault (plus Lightning/mint fees). Mock mode still uses an in-memory debit.
+- **Tool spend:** `createMeltQuoteBolt11` + `meltProofsBolt11`. `fetch_url` is a plain HTTP GET (no invoice), so the agent melts to a **mint-issued bolt11** for `TOOL_SPEND_SATS` and does **not** remint that quote. The melt runs only after the GET succeeds; a failed fetch is refunded on the ledger and proofs stay put. Mock mode debits an in-memory balance and credits it back on failure.
 
-Proofs stay in process memory. `/status`, logs, and the dashboard never include nsec, API keys, or proofs.
-
-`TODO(cashu-mint)`: persist proofs encrypted at rest across restarts.
+Proofs are encrypted at rest when `CASHU_PROOF_KEY` is set (AES-256-GCM, HKDF-SHA256, atomic replace). Mock mode never reads or writes that file. `/status`, logs, and the dashboard never include nsec, API keys, or proofs.
 
 If `loadMint` / quote / receive / melt fails, senders get a mint/wallet error string and the agent keeps serving `/health`.
 
@@ -165,7 +163,14 @@ Copy [`.env.example`](.env.example). **Do not put real nsecs or API keys in git.
 | `NOSTR_RELAYS` | Relays used when Nostr is live |
 | `NOSTR_NSEC` | Agent secret (`nsec1…`). Empty → ephemeral mock identity |
 | `CASHU_MINT_URL` | Mint URL used only when `MOCK_MODE=false` |
-| `PAYMENT_GATE_SATS` | Admission amount before a full reply |
+| `CASHU_PROOF_KEY` | 16+ character secret. HKDF input for the encrypted proof vault. Empty while Cashu is live: proofs stay in memory (warning). Ignored in mock mode |
+| `CASHU_PROOF_PATH` | Vault file, relative to `apps/agent` unless absolute (default `data/proofs.vault`) |
+| `PAYMENT_GATE_SATS` | Base admission before a full reply. Demand pricing can charge an integer multiple |
+| `PRICE_SURGE_AFTER` | New quotes inside `PRICE_SURGE_WINDOW_MS` before the price steps up. `0` disables |
+| `PRICE_SURGE_WINDOW_MS` | Window for that count (default 60000) |
+| `PRICE_MAX_MULTIPLIER` | Cap on the admission multiple (default 3) |
+| `PAID_RATE_LIMIT` | Paid messages per pubkey per window. The held prompt answered at mark-paid does not count. `0` disables |
+| `PAID_RATE_WINDOW_MS` | Window for that cap (default 60000) |
 | `TOOL_SPEND_SATS` | What the agent pays from its wallet to run `fetch_url` |
 | `TOOL_FETCH_TIMEOUT_MS` | Timeout for `fetch_url` |
 | `MOCK_BALANCE_SATS` | Opening mock-wallet balance |
@@ -183,18 +188,20 @@ While `MOCK_MODE=true`, Nostr, Cashu, and the LLM stay mocked even if URLs or ke
 
 - Bind the agent HTTP server to loopback. `/dev/inbound` and `/dev/mark-paid` exist only on loopback hosts.
 - The HTTP API **never** returns the nsec, LLM keys, or Cashu proofs. String fields on `/status` are redacted if they look like those secrets.
-- Live Cashu proofs are held in process memory only. Restarting the agent drops unsaved proofs until `TODO(cashu-mint)` lands.
+- Live Cashu proofs are encrypted on disk only when `CASHU_PROOF_KEY` is set. Without it they stay in process memory and a restart drops them. A vault that fails to decrypt is not overwritten.
 - The dashboard is an operator tool on localhost. Users interact on Nostr.
 
 ## Plug-in points / TODOs
 
-- `TODO(cashu-mint)` — persist proofs encrypted at rest (`apps/agent/src/payments/cashu.ts`)
 - `TODO(nostr-dm-encryption)` — NIP-44 / NIP-17 decrypt so DMs can enter the gate
+
+Demand pricing, paid rate limits, fetch refunds, and the encrypted proof vault are described in [FEATURES.md](FEATURES.md).
 
 ## Further docs
 
 | Doc | Contents |
 | --- | --- |
+| [FEATURES.md](FEATURES.md) | Encrypted proof vault, fetch refunds, demand pricing, paid rate limit |
 | [docs/TRACKS.md](docs/TRACKS.md) | Product intent (Cashu privacy, Nostr + ecash, agent earn/spend) |
 | [docs/LIVE.md](docs/LIVE.md) | Production/live flip, required secrets, fail-fast checks, `/ready` |
 | [docs/MVP.md](docs/MVP.md) | End-to-end loop and operator checks |
