@@ -1,10 +1,11 @@
 import { deriveRuntimeMode } from "@npubbot/shared";
-import { configCheck, env, mock, sessionStorePath } from "./env.ts";
+import { configCheck, env, mock, proofVaultPath, sessionStorePath } from "./env.ts";
 import { AgentStore } from "./store.ts";
 import { SessionStore } from "./sessions.ts";
 import { publicIdentity, resolveIdentity } from "./nostr/identity.ts";
 import { startNostrListener } from "./nostr/listener.ts";
 import { createCashuHandle } from "./payments/cashu.ts";
+import { createProofVault } from "./payments/proof-vault.ts";
 import { startHttpServer } from "./http/server.ts";
 import { createLlmClient } from "./llm/client.ts";
 import { createInbox } from "./inbox.ts";
@@ -64,7 +65,12 @@ async function main(): Promise<void> {
   };
 
   const identity = resolveIdentity(env.NOSTR_NSEC, mock.nostr);
-  const cashu = await createCashuHandle(env.CASHU_MINT_URL, mock.cashu);
+  const proofVault = createProofVault({
+    enabled: !mock.cashu && env.CASHU_PROOF_KEY !== undefined,
+    filePath: proofVaultPath,
+    keyMaterial: env.CASHU_PROOF_KEY,
+  });
+  const cashu = await createCashuHandle(env.CASHU_MINT_URL, mock.cashu, proofVault);
   if (!cashu.mock && probes && !cashu.isReady()) {
     problem(
       `Cashu mint ${cashu.mintUrl ?? "?"} is unreachable (loadMint failed)`,
@@ -98,8 +104,10 @@ async function main(): Promise<void> {
       toolSpendSats: env.TOOL_SPEND_SATS,
       sessionTtlSeconds: env.SESSION_TTL_SECONDS,
       toolFetchTimeoutMs: env.TOOL_FETCH_TIMEOUT_MS,
+      paidRateLimit: env.PAID_RATE_LIMIT,
+      paidRateWindowMs: env.PAID_RATE_WINDOW_MS,
     },
-    mock.cashu ? env.MOCK_BALANCE_SATS : 0,
+    mock.cashu ? env.MOCK_BALANCE_SATS : cashu.proofBalanceSats(),
     cashu.mintUrl,
     {
       mock: mock.nostr,
@@ -107,6 +115,7 @@ async function main(): Promise<void> {
       connected: [],
       lastError: null,
     },
+    cashu.persisted,
   );
   store.setWalletError(cashu.lastError);
 

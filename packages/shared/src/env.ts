@@ -76,7 +76,18 @@ export const agentEnvSchema = z.object({
   NOSTR_RELAYS: commaSeparated,
   NOSTR_NSEC: optionalString,
   CASHU_MINT_URL: optionalString,
+  // HKDF input for the AES-256-GCM proof vault. Empty → live proofs stay in memory.
+  CASHU_PROOF_KEY: optionalString,
+  CASHU_PROOF_PATH: z.string().default("data/proofs.vault"),
   PAYMENT_GATE_SATS: z.coerce.number().int().nonnegative().default(21),
+  // Quotes inside the window before the admission price steps up. 0 disables.
+  PRICE_SURGE_AFTER: z.coerce.number().int().nonnegative().default(3),
+  PRICE_SURGE_WINDOW_MS: z.coerce.number().int().nonnegative().default(60_000),
+  PRICE_MAX_MULTIPLIER: z.coerce.number().int().min(1).max(10).default(3),
+  // Paid turns per pubkey per window. 0 disables. The held prompt on mark-paid
+  // does not count; later messages from that npub do.
+  PAID_RATE_LIMIT: z.coerce.number().int().nonnegative().default(12),
+  PAID_RATE_WINDOW_MS: z.coerce.number().int().nonnegative().default(60_000),
   TOOL_SPEND_SATS: z.coerce.number().int().nonnegative().default(10),
   TOOL_FETCH_TIMEOUT_MS: z.coerce.number().int().positive().default(8000),
   MOCK_BALANCE_SATS: z.coerce.number().int().nonnegative().default(210),
@@ -259,6 +270,11 @@ export function checkAgentConfig(env: AgentEnv): ConfigCheck {
         checkUrl(`NOSTR_RELAYS entry "${relay}"`, relay, ["wss:", "ws:"], "wss:", out);
       }
     }
+    if (env.CASHU_MINT_URL !== undefined && env.CASHU_PROOF_KEY === undefined) {
+      out.warnings.push(
+        "CASHU_PROOF_KEY is empty — live Cashu proofs stay in process memory and are lost on restart",
+      );
+    }
     if (env.CASHU_MINT_URL !== undefined) {
       checkUrl("CASHU_MINT_URL", env.CASHU_MINT_URL, ["https:", "http:"], "https:", out);
       if (/testnut\.cashu\.space/iu.test(env.CASHU_MINT_URL)) {
@@ -285,6 +301,13 @@ export function checkAgentConfig(env: AgentEnv): ConfigCheck {
         }
       }
     }
+  }
+
+  if (
+    env.CASHU_PROOF_KEY !== undefined &&
+    env.CASHU_PROOF_KEY.length < 16
+  ) {
+    out.errors.push("CASHU_PROOF_KEY must be at least 16 characters");
   }
 
   if (env.NODE_ENV === "production" && !env.LIVE_MODE) {

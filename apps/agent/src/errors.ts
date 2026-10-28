@@ -32,9 +32,9 @@ function faultMessage(kind: FaultKind): string {
     case "llm":
       return "NpubBot's language model is down. If you already paid, your session still stands — send the prompt again in a minute.";
     case "tool":
-      return "fetch_url failed. The agent already spent sats on the attempt; try another public http(s) URL.";
+      return "fetch_url failed. The tool spend was refunded to the wallet; try another public http(s) URL.";
     case "tool-timeout":
-      return "fetch_url timed out. The agent still spent sats on the attempt; try a smaller page.";
+      return "fetch_url timed out. The tool spend was refunded to the wallet; try a smaller page.";
     case "insufficient-balance":
       return "NpubBot can't afford fetch_url from its wallet right now.";
     case "unknown":

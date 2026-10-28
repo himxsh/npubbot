@@ -22,6 +22,7 @@ console.log("");
 console.log(`NOSTR_NSEC      ${present(env.NOSTR_NSEC)}`);
 console.log(`NOSTR_RELAYS    ${env.NOSTR_RELAYS.join(", ") || "MISSING"}`);
 console.log(`CASHU_MINT_URL  ${env.CASHU_MINT_URL ?? "MISSING"}`);
+console.log(`CASHU_PROOF_KEY ${present(env.CASHU_PROOF_KEY)}`);
 console.log(`LLM_API_KEY     ${present(env.LLM_API_KEY)}`);
 console.log(`LLM_BASE_URL    ${env.LLM_BASE_URL}`);
 console.log(`LLM_MODEL       ${env.LLM_MODEL || "MISSING"}`);

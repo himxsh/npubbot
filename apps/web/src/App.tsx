@@ -45,7 +45,7 @@ const TITLES: Record<View, { title: string; sub: string }> = {
   },
   earnings: {
     title: "Earnings",
-    sub: "Sats received from admission quotes and spent on tools.",
+    sub: "Sats earned, spent on tools, and refunded when a fetch fails.",
   },
   wallet: {
     title: "Wallet",

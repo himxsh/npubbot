@@ -44,3 +44,7 @@ export const configCheck: ConfigCheck = checkAgentConfig(env);
 export const sessionStorePath = isAbsolute(env.SESSION_STORE_PATH)
   ? env.SESSION_STORE_PATH
   : resolve(agentRoot, env.SESSION_STORE_PATH);
+
+export const proofVaultPath = isAbsolute(env.CASHU_PROOF_PATH)
+  ? env.CASHU_PROOF_PATH
+  : resolve(agentRoot, env.CASHU_PROOF_PATH);

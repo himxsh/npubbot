@@ -58,7 +58,7 @@ export function createRuntimeReporter(deps: {
       mode: "live",
       ready: cashu.isReady(),
       detail: cashu.isReady()
-        ? `mint ${cashu.mintUrl ?? "?"} loaded; ${cashu.proofBalanceSats()} sat in proofs`
+        ? `mint ${cashu.mintUrl ?? "?"} loaded; ${cashu.proofBalanceSats()} sat in proofs; ${cashu.persisted ? "encrypted vault" : "memory only"}`
         : `mint ${cashu.mintUrl ?? "?"} not loaded (unreachable)`,
       lastError: lastError === null ? null : redactSecrets(lastError),
     };

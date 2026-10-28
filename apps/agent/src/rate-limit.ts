@@ -22,3 +22,37 @@ export class UnpaidCooldown {
     this.lastReplyAt.set(pubkeyHex, now);
   }
 }
+
+/**
+ * Cap how many paid turns one pubkey can take inside a window.
+ * `limit` or `windowMs` of 0 disables the cap. A rejected turn is not recorded,
+ * so retries do not push the window forward.
+ */
+export class PaidRateLimit {
+  private readonly hits = new Map<string, number[]>();
+
+  constructor(
+    private readonly limit: number,
+    private readonly windowMs: number,
+  ) {}
+
+  allow(
+    pubkeyHex: string,
+    now = Date.now(),
+  ): { ok: true; remaining: number } | { ok: false; retryMs: number } {
+    if (this.limit <= 0 || this.windowMs <= 0) {
+      return { ok: true, remaining: Number.POSITIVE_INFINITY };
+    }
+    const fresh = (this.hits.get(pubkeyHex) ?? []).filter(
+      (stamp) => now - stamp < this.windowMs,
+    );
+    if (fresh.length >= this.limit) {
+      this.hits.set(pubkeyHex, fresh);
+      const oldest = fresh[0] ?? now;
+      return { ok: false, retryMs: Math.max(0, this.windowMs - (now - oldest)) };
+    }
+    fresh.push(now);
+    this.hits.set(pubkeyHex, fresh);
+    return { ok: true, remaining: this.limit - fresh.length };
+  }
+}

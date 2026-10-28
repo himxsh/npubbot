@@ -13,6 +13,7 @@
     "dev": "pnpm run --parallel --filter @npubbot/agent --filter @npubbot/web dev",
     "build": "pnpm --filter @npubbot/shared typecheck && pnpm --filter @npubbot/agent typecheck && pnpm --filter @npubbot/web build",
     "typecheck": "pnpm --filter @npubbot/shared typecheck && pnpm --filter @npubbot/agent typecheck && pnpm --filter @npubbot/web typecheck",
+    "test": "pnpm --filter @npubbot/agent test",
     "agent": "pnpm --filter @npubbot/agent start",
     "web": "pnpm --filter @npubbot/web dev",
     "live:check": "pnpm --filter @npubbot/agent live:check"

@@ -9,6 +9,7 @@
     "start": "tsx src/index.ts",
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "build": "tsc -p tsconfig.json --noEmit",
+    "test": "tsx --test src/payments/proof-vault.test.ts src/payments/pricing.test.ts src/rate-limit.test.ts src/tools/paid-fetch.test.ts src/inbox.features.test.ts",
     "live:check": "tsx src/check-config.ts"
   },
   "dependencies": {

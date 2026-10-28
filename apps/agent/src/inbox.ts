@@ -14,6 +14,7 @@ import { newId, syntheticEventId } from "./ids.ts";
 import type { AgentStore } from "./store.ts";
 import { SessionStore, type SenderSession } from "./sessions.ts";
 import type { CashuHandle } from "./payments/cashu.ts";
+import { DemandPricer } from "./payments/pricing.ts";
 import { createAdmissionQuote, paywallMessage } from "./payments/quotes.ts";
 import { extractCashuToken, stripCashuTokens } from "./payments/token.ts";
 import {
@@ -26,13 +27,14 @@ import { classifyInboundKind } from "./nostr/classify.ts";
 import { publishTextReply } from "./nostr/publish.ts";
 import type { SimplePool } from "nostr-tools/pool";
 import { routeIntent } from "./tools/intent.ts";
-import { fetchUrl, formatFetchResult } from "./tools/fetch-url.ts";
+import { formatFetchResult } from "./tools/fetch-url.ts";
 import {
   insufficientToolMessage,
   needUrlMessage,
-  spendForTool,
+  refundedToolMessage,
+  runPaidFetch,
 } from "./tools/spender.ts";
-import { UnpaidCooldown } from "./rate-limit.ts";
+import { PaidRateLimit, UnpaidCooldown } from "./rate-limit.ts";
 import { logError, logInfo, redactSecrets } from "./secrets.ts";
 
 export type Inbox = {
@@ -83,6 +85,21 @@ export function createInbox(deps: InboxDeps): Inbox {
   const { env, mock, identity, store, sessions, cashu, llm, getPool } = deps;
   const chains = new Map<string, Promise<unknown>>();
   const unpaidCooldown = new UnpaidCooldown(env.UNPAID_COOLDOWN_MS);
+  const paidLimiter = new PaidRateLimit(env.PAID_RATE_LIMIT, env.PAID_RATE_WINDOW_MS);
+  const pricer = new DemandPricer(
+    env.PAYMENT_GATE_SATS,
+    env.PRICE_SURGE_AFTER,
+    env.PRICE_SURGE_WINDOW_MS,
+    env.PRICE_MAX_MULTIPLIER,
+  );
+  store.setPricingView(() => {
+    const price = pricer.peek();
+    return {
+      quotedAdmissionSats: price.amountSats,
+      priceMultiplier: price.multiplier,
+      recentQuotes: price.recentQuotes,
+    };
+  });
   let settling = false;
 
   function enqueue<T>(key: string, task: () => Promise<T>): Promise<T> {
@@ -155,15 +172,15 @@ export function createInbox(deps: InboxDeps): Inbox {
           outcome: "tool-need-url",
         };
       case "fetch_url": {
-        const spend = await spendForTool({
+        const job = await runPaidFetch({
           store,
           cashu,
           amountSats: env.TOOL_SPEND_SATS,
           url: intent.url,
+          timeoutMs: env.TOOL_FETCH_TIMEOUT_MS,
         });
-        if (!spend.ok) {
-          const insufficient = spend.detail.startsWith("insufficient");
-          if (insufficient) {
+        switch (job.kind) {
+          case "unaffordable":
             return {
               reply: insufficientToolMessage({
                 balanceSats: store.getBalance(),
@@ -171,29 +188,23 @@ export function createInbox(deps: InboxDeps): Inbox {
               }),
               outcome: "tool-unaffordable",
             };
-          }
-          return {
-            reply: userFacingMessage("wallet"),
-            outcome: "error",
-          };
+          case "wallet":
+            return {
+              reply: userFacingMessage("wallet"),
+              outcome: "error",
+            };
+          case "refunded":
+            logInfo("tool", `refunded fetch_url: ${job.error}`);
+            return {
+              reply: refundedToolMessage(job.error, env.TOOL_SPEND_SATS),
+              outcome: "error",
+            };
+          case "fetched":
+            break;
+          default:
+            return assertNever(job);
         }
-        let fetched;
-        try {
-          fetched = await fetchUrl(intent.url, env.TOOL_FETCH_TIMEOUT_MS);
-        } catch (error) {
-          logError("tool", error);
-          return {
-            reply: userFacingMessage("tool"),
-            outcome: "error",
-          };
-        }
-        if (!fetched.ok) {
-          const reply =
-            fetched.error === "timeout"
-              ? userFacingMessage("tool-timeout")
-              : userFacingMessage("tool", fetched.error);
-          return { reply, outcome: "error" };
-        }
+        const fetched = job.fetched;
         const toolBlob = formatFetchResult(fetched);
         try {
           const result = await llm.complete({
@@ -242,9 +253,11 @@ export function createInbox(deps: InboxDeps): Inbox {
       };
     }
 
+    const priced = pricer.peek();
     let quote;
     try {
-      quote = await createAdmissionQuote(cashu, env.PAYMENT_GATE_SATS);
+      quote = await createAdmissionQuote(cashu, priced.amountSats);
+      pricer.note();
       store.setWalletError(null);
     } catch (error) {
       logError("cashu", error);
@@ -252,7 +265,7 @@ export function createInbox(deps: InboxDeps): Inbox {
       store.recordPayment({
         id: newId("pay"),
         quoteId: null,
-        amountSats: env.PAYMENT_GATE_SATS,
+        amountSats: priced.amountSats,
         direction: "in",
         state: { kind: "failed", reason: "mint unreachable" },
         note: `admission quote failed for ${input.senderNpub}`,
@@ -300,6 +313,9 @@ export function createInbox(deps: InboxDeps): Inbox {
         quoteId: quote.quoteId,
         request: quote.request,
         mock: quote.mock,
+        baseSats: priced.baseSats,
+        multiplier: priced.multiplier,
+        recentQuotes: priced.recentQuotes,
       }),
     };
   }
@@ -387,10 +403,15 @@ export function createInbox(deps: InboxDeps): Inbox {
         createdAt: new Date().toISOString(),
       });
 
-      if (received.amountSats < env.PAYMENT_GATE_SATS) {
+      const pending = sessions.getBySender(input.senderPubkeyHex);
+      const requiredSats =
+        pending?.state === "pending"
+          ? pending.amountSats
+          : pricer.peek().amountSats;
+      if (received.amountSats < requiredSats) {
         const message = [
           `Received ${received.amountSats} sat as Cashu.`,
-          `Admission is ${env.PAYMENT_GATE_SATS} sat — send the rest to unlock a full reply.`,
+          `Admission is ${requiredSats} sat — send the rest to unlock a full reply.`,
         ].join(" ");
         await sendReply({
           content: message,
@@ -406,7 +427,10 @@ export function createInbox(deps: InboxDeps): Inbox {
         };
       }
 
-      const existing = sessions.getBySender(input.senderPubkeyHex);
+      const existing = pending;
+      if (existing?.state !== "pending") {
+        pricer.note();
+      }
       const quoteId = existing?.quoteId ?? newId("quote");
       if (existing && existing.state === "pending") {
         sessions.markPaid(quoteId);
@@ -465,6 +489,30 @@ export function createInbox(deps: InboxDeps): Inbox {
   }): Promise<{ outcome: InboundOutcome; reply: string | null; quoteId: string | null }> {
     if (sessions.isPaid(input.senderPubkeyHex)) {
       const quoteId = sessions.getBySender(input.senderPubkeyHex)?.quoteId ?? null;
+      const limited = paidLimiter.allow(input.senderPubkeyHex);
+      if (!limited.ok) {
+        const windowSec = Math.max(1, Math.round(env.PAID_RATE_WINDOW_MS / 1000));
+        const retrySec = Math.max(1, Math.ceil(limited.retryMs / 1000));
+        const reply = `NpubBot is rate-limiting this npub (${env.PAID_RATE_LIMIT} paid messages / ${windowSec}s). Try again in ${retrySec}s. No extra sats were charged.`;
+        store.recordEvent({
+          id: input.eventId,
+          kind: input.kind,
+          label: "mention",
+          direction: "in",
+          from: input.senderNpub,
+          summary: preview(input.text),
+          createdAt: input.createdAt,
+          gated: false,
+          quoteId,
+        });
+        await sendReply({
+          content: reply,
+          replyTo: { id: input.eventId, pubkeyHex: input.senderPubkeyHex },
+          gated: false,
+          quoteId,
+        });
+        return { outcome: "rate-limited", reply, quoteId };
+      }
       store.recordEvent({
         id: input.eventId,
         kind: input.kind,

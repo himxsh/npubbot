@@ -264,8 +264,25 @@ export type Earnings = {
   today: number;
   paidCount: number;
   spent: number;
+  refunded: number;
+  net: number;
   series: EarningsPoint[];
 };
+
+export function paymentDirectionText(
+  direction: "in" | "out" | "refund",
+): string {
+  switch (direction) {
+    case "in":
+      return "In";
+    case "out":
+      return "Out";
+    case "refund":
+      return "Refund";
+    default:
+      return assertNever(direction);
+  }
+}
 
 export function buildEarnings(status: AgentStatus, now: number = Date.now()): Earnings {
   let total = 0;
@@ -274,6 +291,7 @@ export function buildEarnings(status: AgentStatus, now: number = Date.now()): Ea
   let today = 0;
   let paidCount = 0;
   let spent = 0;
+  let refunded = 0;
 
   const midnight = new Date(now);
   midnight.setHours(0, 0, 0, 0);
@@ -303,6 +321,10 @@ export function buildEarnings(status: AgentStatus, now: number = Date.now()): Ea
       spent += row.amountSats;
       continue;
     }
+    if (row.direction === "refund") {
+      refunded += row.amountSats;
+      continue;
+    }
     paidCount += 1;
     total += row.amountSats;
     const t = ms(row.createdAt);
@@ -326,5 +348,15 @@ export function buildEarnings(status: AgentStatus, now: number = Date.now()): Ea
     }
   }
 
-  return { total, last24h, prev24h, today, paidCount, spent, series };
+  return {
+    total,
+    last24h,
+    prev24h,
+    today,
+    paidCount,
+    spent,
+    refunded,
+    net: total - spent + refunded,
+    series,
+  };
 }

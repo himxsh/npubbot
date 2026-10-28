@@ -18,7 +18,7 @@ export const paymentStateSchema = z.discriminatedUnion("kind", [
 
 export type PaymentState = z.infer<typeof paymentStateSchema>;
 
-export const paymentDirectionSchema = z.enum(["in", "out"]);
+export const paymentDirectionSchema = z.enum(["in", "out", "refund"]);
 export type PaymentDirection = z.infer<typeof paymentDirectionSchema>;
 
 export const paymentRecordSchema = z.object({
@@ -85,6 +85,7 @@ export const toolSpendSchema = z.object({
   url: z.string().nullable(),
   amountSats: z.number().int().nonnegative(),
   ok: z.boolean(),
+  refunded: z.boolean(),
   detail: z.string(),
   createdAt: z.string(),
 });
@@ -162,12 +163,28 @@ export const agentStatusSchema = z.object({
     mintUrl: z.string().nullable(),
     mock: z.boolean(),
     lastError: z.string().nullable(),
+    /** Live vault with a key loaded. Mock is always false and never writes a file. */
+    proofsPersisted: z.boolean(),
+  }),
+  ledger: z.object({
+    earnedSats: z.number().int().nonnegative(),
+    spentSats: z.number().int().nonnegative(),
+    refundedSats: z.number().int().nonnegative(),
+    /** earned − spent + refunded. Opening balance is not included. */
+    netSats: z.number().int(),
   }),
   gate: z.object({
+    /** Base admission before demand pricing. */
     admissionSats: z.number().int().nonnegative(),
+    /** Price the next new quote would charge. */
+    quotedAdmissionSats: z.number().int().nonnegative(),
+    priceMultiplier: z.number().int().positive(),
+    recentQuotes: z.number().int().nonnegative(),
     toolSpendSats: z.number().int().nonnegative(),
     sessionTtlSeconds: z.number().int().positive(),
     toolFetchTimeoutMs: z.number().int().positive(),
+    paidRateLimit: z.number().int().nonnegative(),
+    paidRateWindowMs: z.number().int().nonnegative(),
   }),
   mock: z.object({
     nostr: z.boolean(),
@@ -208,6 +225,7 @@ export const inboundOutcomeSchema = z.enum([
   "ignored-dm",
   "ignored-self",
   "duplicate",
+  "rate-limited",
 ]);
 
 export type InboundOutcome = z.infer<typeof inboundOutcomeSchema>;

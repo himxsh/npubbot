@@ -49,6 +49,11 @@ export class AgentStore {
   private walletError: string | null = null;
   private sessionsView: () => SessionSummary[] = () => [];
   private runtimeView: (() => RuntimeReport) | null = null;
+  private pricingView: () => {
+    quotedAdmissionSats: number;
+    priceMultiplier: number;
+    recentQuotes: number;
+  };
 
   constructor(
     private readonly identity: AgentIdentityView,
@@ -58,13 +63,31 @@ export class AgentStore {
       toolSpendSats: number;
       sessionTtlSeconds: number;
       toolFetchTimeoutMs: number;
+      paidRateLimit: number;
+      paidRateWindowMs: number;
     },
     openingBalanceSats: number,
     private readonly mintUrl: string | null,
     inbox: InboxStatus,
+    private readonly proofsPersisted = false,
   ) {
     this.balanceSats = openingBalanceSats;
     this.inbox = inbox;
+    this.pricingView = () => ({
+      quotedAdmissionSats: gate.admissionSats,
+      priceMultiplier: 1,
+      recentQuotes: 0,
+    });
+  }
+
+  setPricingView(
+    view: () => {
+      quotedAdmissionSats: number;
+      priceMultiplier: number;
+      recentQuotes: number;
+    },
+  ): void {
+    this.pricingView = view;
   }
 
   setSessionView(view: () => SessionSummary[]): void {
@@ -166,6 +189,49 @@ export class AgentStore {
     }
   }
 
+  markToolSpendRefunded(id: string, detail: string): void {
+    const row = this.toolSpends.find((spend) => spend.id === id);
+    if (row === undefined) {
+      return;
+    }
+    row.refunded = true;
+    row.ok = false;
+    row.detail = detail;
+    if (this.lastToolSpend?.id === id) {
+      this.lastToolSpend = row;
+    }
+  }
+
+  private ledger(): AgentStatus["ledger"] {
+    let earnedSats = 0;
+    let spentSats = 0;
+    let refundedSats = 0;
+    for (const row of this.payments) {
+      if (row.state.kind !== "paid") {
+        continue;
+      }
+      switch (row.direction) {
+        case "in":
+          earnedSats += row.amountSats;
+          break;
+        case "out":
+          spentSats += row.amountSats;
+          break;
+        case "refund":
+          refundedSats += row.amountSats;
+          break;
+        default:
+          assertNever(row.direction);
+      }
+    }
+    return {
+      earnedSats,
+      spentSats,
+      refundedSats,
+      netSats: earnedSats - spentSats + refundedSats,
+    };
+  }
+
   snapshot(): AgentStatus {
     if (this.runtimeView === null) {
       throw new Error("runtime view not wired");
@@ -179,8 +245,13 @@ export class AgentStore {
         mintUrl: this.mintUrl,
         mock: this.flags.cashu,
         lastError: this.walletError,
+        proofsPersisted: this.proofsPersisted,
       },
-      gate: this.gate,
+      ledger: this.ledger(),
+      gate: {
+        ...this.gate,
+        ...this.pricingView(),
+      },
       mock: this.flags,
       inbox: this.inbox,
       sessions: this.sessionsView().map((session) => ({

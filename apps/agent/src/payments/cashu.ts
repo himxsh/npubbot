@@ -1,4 +1,11 @@
-import { MeltQuoteState, MintQuoteState, Wallet, type Proof } from "@cashu/cashu-ts";
+import {
+  MeltQuoteState,
+  MintQuoteState,
+  Wallet,
+  normalizeProofAmounts,
+  type Proof,
+  type ProofLike,
+} from "@cashu/cashu-ts";
 import { assertNever } from "@npubbot/shared";
 import { AgentFaultError } from "../errors.ts";
 import { newId } from "../ids.ts";
@@ -25,9 +32,18 @@ export type MeltForToolResult =
   | { ok: true; amountSats: number; feeSats: number; remainingSats: number }
   | { ok: false; reason: "insufficient" | "wallet"; message: string };
 
+/** Disk vault. Mock handles must not call it. */
+export type ProofPersistence = {
+  readonly enabled: boolean;
+  load(): Promise<unknown>;
+  save(payload: unknown): Promise<void>;
+};
+
 export type CashuHandle = {
   readonly mock: boolean;
   readonly mintUrl: string | null;
+  /** True only when a live vault loaded and will be rewritten after spends. */
+  readonly persisted: boolean;
   lastError: string | null;
   createQuote: (amountSats: number) => Promise<AdmissionQuote>;
   settleQuote: (quoteId: string) => Promise<QuoteSettleResult>;
@@ -58,6 +74,23 @@ function sumProofs(proofs: Proof[]): number {
   return total;
 }
 
+function encodeProofs(proofs: Proof[]): unknown[] {
+  return proofs.map((proof) => ({
+    ...proof,
+    amount: proof.amount.toNumber(),
+  }));
+}
+
+function decodeProofs(payload: unknown): Proof[] {
+  if (!Array.isArray(payload)) {
+    throw new Error("proof vault payload is not a list");
+  }
+  if (payload.length === 0) {
+    return [];
+  }
+  return normalizeProofAmounts(payload as ProofLike[]);
+}
+
 function amountFromQuote(value: { amount?: { toNumber: () => number } }): number {
   if (value.amount === undefined) {
     return 0;
@@ -72,18 +105,21 @@ function amountFromQuote(value: { amount?: { toNumber: () => number } }): number
  * HTTP GET has no Lightning invoice, so tool spend melts to a mint-issued
  * bolt11 (self-pay) and does **not** remint that quote. Proofs leave the vault.
  *
- * Proofs stay in process memory and are never logged or returned on /status.
- * TODO(cashu-mint): persist proofs encrypted at rest across restarts.
+ * Proofs are never logged or returned on /status. When `persistence` is
+ * enabled they are rewritten after each mint, receive, or melt. Mock mode
+ * returns before that handle is touched, so it never reads or writes the file.
  */
 export async function createCashuHandle(
   mintUrl: string | undefined,
   mock: boolean,
+  persistence?: ProofPersistence,
 ): Promise<CashuHandle> {
   if (mock || mintUrl === undefined) {
     logInfo("cashu", "mock wallet — not contacting a mint");
     return {
       mock: true,
       mintUrl: null,
+      persisted: false,
       lastError: null,
       async createQuote(amountSats) {
         return createMockQuote(amountSats);
@@ -109,15 +145,53 @@ export async function createCashuHandle(
   const wallet = new Wallet(mintUrl);
   const vault: Proof[] = [];
   let ready = false;
+  let persisted = false;
+  let vaultError: string | null = null;
+
+  if (persistence?.enabled) {
+    try {
+      const loaded = decodeProofs(await persistence.load());
+      vault.push(...loaded);
+      persisted = true;
+      const sats = sumProofs(vault);
+      logInfo(
+        "cashu",
+        loaded.length === 0
+          ? "encrypted proof vault empty"
+          : `restored ${loaded.length} proofs (${sats} sat) from encrypted vault`,
+      );
+    } catch (error) {
+      persisted = false;
+      vaultError = "proof vault unreadable — not overwriting";
+      logError("cashu", error);
+    }
+  }
 
   function replaceVault(next: Proof[]): void {
     vault.length = 0;
     vault.push(...next);
   }
+
+  async function persist(): Promise<void> {
+    if (!persisted || persistence === undefined) {
+      return;
+    }
+    try {
+      await persistence.save(encodeProofs(vault));
+      if (handle.lastError === "proof vault save failed") {
+        handle.lastError = vaultError;
+      }
+    } catch (error) {
+      handle.lastError = "proof vault save failed";
+      logError("cashu", error);
+    }
+  }
+
   const handle: CashuHandle = {
     mock: false,
     mintUrl,
-    lastError: null,
+    persisted,
+    lastError: vaultError,
     async createQuote(amountSats) {
       await ensureReady();
       try {
@@ -171,6 +245,7 @@ export async function createCashuHandle(
             const amountSats = amountFromQuote(checked);
             const proofs = await wallet.mintProofsBolt11(amountSats, checked.quote);
             vault.push(...proofs);
+            await persist();
             logInfo(
               "cashu",
               `minted ${amountSats} sat (${proofs.length} proofs) — proofs not logged`,
@@ -192,6 +267,7 @@ export async function createCashuHandle(
         const proofs = await wallet.receive(token);
         const amountSats = sumProofs(proofs);
         vault.push(...proofs);
+        await persist();
         logInfo(
           "cashu",
           `received ${amountSats} sat (${proofs.length} proofs) — proofs not logged`,
@@ -256,6 +332,7 @@ export async function createCashuHandle(
           case MeltQuoteState.UNPAID:
             handle.lastError = "melt unpaid";
             logWarn("cashu", "melt quote still unpaid — proofs kept");
+            await persist();
             return {
               ok: false,
               reason: "wallet",
@@ -270,7 +347,8 @@ export async function createCashuHandle(
               "cashu",
               `melted ${amountSats} sat (+${feeSats} sat fee) for fetch_url self-pay; remaining ${remainingSats} sat — proofs not logged`,
             );
-            handle.lastError = null;
+            handle.lastError = vaultError;
+            await persist();
             return { ok: true, amountSats, feeSats, remainingSats };
           }
           default:
@@ -279,6 +357,7 @@ export async function createCashuHandle(
       } catch (error) {
         handle.lastError = "melt failed";
         logError("cashu", error);
+        await persist();
         return { ok: false, reason: "wallet", message: "melt failed" };
       }
     },
@@ -301,10 +380,13 @@ export async function createCashuHandle(
     try {
       await wallet.loadMint();
       ready = true;
-      handle.lastError = null;
+      handle.lastError = vaultError;
       logInfo("cashu", `loaded mint ${mintUrl}`);
     } catch (error) {
-      handle.lastError = "mint unreachable";
+      handle.lastError =
+        vaultError === null
+          ? "mint unreachable"
+          : `${vaultError}; mint unreachable`;
       logError("cashu", error);
       throw new AgentFaultError("mint");
     }

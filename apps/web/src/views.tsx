@@ -20,6 +20,7 @@ import {
   formatWhen,
   latencyLabel,
   mintHost,
+  paymentDirectionText,
   paymentStateText,
   sessionStateText,
   shortNpub,
@@ -244,6 +245,12 @@ export function OverviewView(props: DashboardProps) {
             </span>
             <span className="earn-today">
               <b className="mono">+{formatSats(earnings.today)}</b> today
+              {earnings.refunded > 0 ? (
+                <>
+                  {" "}
+                  · refunded <b className="mono">{formatSats(earnings.refunded)}</b>
+                </>
+              ) : null}
             </span>
           </div>
           <div className="earnings-chart">
@@ -711,7 +718,9 @@ function ToolSpendsCard({ status }: { status: AgentStatus }) {
                   <tr key={spend.id}>
                     <td className="mono nowrap">{formatWhen(spend.createdAt)}</td>
                     <td>
-                      <Pill tone={spend.ok ? "ok" : "warn"}>{spend.ok ? "OK" : "Blocked"}</Pill>
+                      <Pill tone={spend.refunded ? "warn" : spend.ok ? "ok" : "danger"}>
+                        {spend.refunded ? "Refunded" : spend.ok ? "OK" : "Blocked"}
+                      </Pill>
                     </td>
                     <td className="mono nowrap">{formatSats(spend.amountSats)}</td>
                     <td className="truncate" title={`${spend.url ?? ""} ${spend.detail}`}>
@@ -760,6 +769,14 @@ export function EarningsView(props: DashboardProps) {
           <span className="label">Spent on tools</span>
           <span className="mid-number mono">{formatSats(earnings.spent)}</span>
         </div>
+        <div className="stat">
+          <span className="label">Refunded</span>
+          <span className="mid-number mono">{formatSats(earnings.refunded)}</span>
+        </div>
+        <div className="stat">
+          <span className="label">Ledger net</span>
+          <span className="mid-number mono">{formatSats(earnings.net)}</span>
+        </div>
       </div>
 
       <Card title="Earnings · last 7 days" icon={<TrendIcon />}>
@@ -790,7 +807,7 @@ export function EarningsView(props: DashboardProps) {
                   {pager.slice.map((row) => (
                     <tr key={row.id}>
                       <td className="mono nowrap">{formatWhen(row.createdAt)}</td>
-                      <td>{row.direction === "in" ? "In" : "Out"}</td>
+                      <td>{paymentDirectionText(row.direction)}</td>
                       <td className="mono nowrap">{formatSats(row.amountSats)}</td>
                       <td>
                         <Pill
@@ -862,6 +879,11 @@ export function WalletView(props: DashboardProps) {
             {status.wallet.balanceSats.toLocaleString()} <span>sats</span>
           </div>
           <p className="card-sub">Balance available to spend.</p>
+          <p className="card-sub">
+            {status.wallet.proofsPersisted
+              ? "Live proofs are encrypted on disk and restored after a restart."
+              : "Proofs stay in memory for this process."}
+          </p>
           <div className="mint-row">
             <span className="mint-icon">
               <CoinsIcon size={22} />
@@ -888,8 +910,25 @@ export function WalletView(props: DashboardProps) {
               <dd className="mono">{formatSats(status.gate.admissionSats)}</dd>
             </div>
             <div>
+              <dt>Next quote</dt>
+              <dd className="mono">
+                {formatSats(status.gate.quotedAdmissionSats)}
+                {status.gate.priceMultiplier > 1
+                  ? ` (${status.gate.priceMultiplier}×)`
+                  : ""}
+              </dd>
+            </div>
+            <div>
               <dt>Tool spend</dt>
               <dd className="mono">{formatSats(status.gate.toolSpendSats)}</dd>
+            </div>
+            <div>
+              <dt>Paid rate</dt>
+              <dd className="mono">
+                {status.gate.paidRateLimit === 0
+                  ? "off"
+                  : `${status.gate.paidRateLimit} / ${Math.round(status.gate.paidRateWindowMs / 1000)}s`}
+              </dd>
             </div>
             <div>
               <dt>Session TTL</dt>
